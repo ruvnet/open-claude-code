@@ -121,6 +121,12 @@ export class HookEngine {
     /**
      * Execute a single hook. Supports command (shell) and function hooks.
      *
+     * Note: hook.command is an operator-configured shell string (defined in
+     * settings.json by the user who controls this machine) — it is intentionally
+     * executed as a shell command.  The tool input/context is passed ONLY via
+     * environment variables (never interpolated into the command string) to
+     * prevent escalation from tool input into the hook command itself.
+     *
      * @param {object} hook - hook definition
      * @param {object} context - execution context
      * @returns {Promise<object|null>}
@@ -128,10 +134,12 @@ export class HookEngine {
     async _executeHook(hook, context) {
         try {
             if (hook.command) {
+                // Ensure env values are strings (guards against prototype pollution
+                // or non-string values from context objects breaking child_process).
                 const env = {
                     ...process.env,
-                    HOOK_EVENT: context.event,
-                    HOOK_TOOL: context.toolName || '',
+                    HOOK_EVENT: String(context.event || ''),
+                    HOOK_TOOL: String(context.toolName || ''),
                     HOOK_INPUT: JSON.stringify(context.input || {}),
                 };
                 const output = execSync(hook.command, {

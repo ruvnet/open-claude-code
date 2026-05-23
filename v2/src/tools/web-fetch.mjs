@@ -1,6 +1,12 @@
 /**
  * Web Fetch Tool — fetch URL content using built-in Node.js fetch.
+ *
+ * Security: validates the URL before fetching to prevent SSRF attacks.
+ * Private/link-local/loopback addresses and cloud metadata endpoints are
+ * blocked so the tool cannot be used to probe internal network services.
  */
+
+import { isPrivateHost } from '../permissions/ssrf-check.mjs';
 
 export const WebFetchTool = {
     name: 'WebFetch',
@@ -29,6 +35,10 @@ export const WebFetchTool = {
             // Only allow http and https protocols
             if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
                 errors.push('url must use http or https protocol');
+            }
+            // Block SSRF: reject private/internal/loopback hosts
+            if (isPrivateHost(parsed.hostname)) {
+                errors.push('url must not target private or internal network addresses');
             }
         } catch {
             errors.push('url must be a valid URL');

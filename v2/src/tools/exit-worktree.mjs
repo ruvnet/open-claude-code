@@ -2,7 +2,7 @@
  * ExitWorktree Tool — exit and clean up a git worktree.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 export const ExitWorktreeTool = {
     name: 'ExitWorktree',
@@ -35,11 +35,12 @@ export const ExitWorktreeTool = {
 
             if (cleanup) {
                 try {
-                    execSync(`git worktree remove "${wt.path}" --force`, {
+                    // Security: pass path and branch as discrete args — no shell injection
+                    execFileSync('git', ['worktree', 'remove', wt.path, '--force'], {
                         encoding: 'utf-8',
                         stdio: 'pipe',
                     });
-                    execSync(`git branch -D "${wt.branch}"`, {
+                    execFileSync('git', ['branch', '-D', wt.branch], {
                         encoding: 'utf-8',
                         stdio: 'pipe',
                     });

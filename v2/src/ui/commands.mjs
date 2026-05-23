@@ -443,10 +443,13 @@ export const COMMANDS = {
         description: 'Create a git commit with AI message',
         handler(args) {
             try {
-                const { execSync } = require('child_process');
+                // Security: use execFileSync with discrete args so the commit
+                // message is never shell-interpolated (prevents injection via
+                // crafted message strings containing shell metacharacters).
+                const { execFileSync } = require('child_process');
                 const msg = args || 'Update from open-claude-code';
-                execSync('git add -A', { encoding: 'utf-8' });
-                execSync(`git commit -m "${msg}"`, { encoding: 'utf-8' });
+                execFileSync('git', ['add', '-A'], { encoding: 'utf-8' });
+                execFileSync('git', ['commit', '-m', msg], { encoding: 'utf-8' });
                 return `Committed: ${msg}`;
             } catch (err) {
                 return `Commit failed: ${err.message}`;

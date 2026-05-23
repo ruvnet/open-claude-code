@@ -4,7 +4,7 @@
  * Creates a temporary worktree branch so edits do not affect the main branch.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import path from 'path';
 import os from 'os';
 
@@ -38,7 +38,8 @@ export const EnterWorktreeTool = {
 
         try {
             // Verify we are in a git repo
-            execSync('git rev-parse --is-inside-work-tree', { encoding: 'utf-8' });
+            // Security: execFileSync so arguments are not shell-interpolated
+            execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { encoding: 'utf-8' });
         } catch {
             return 'Error: not inside a git repository';
         }
@@ -48,7 +49,8 @@ export const EnterWorktreeTool = {
         const originalCwd = process.cwd();
 
         try {
-            execSync(`git worktree add -b "${branch}" "${worktreePath}"`, {
+            // Security: pass branch and worktreePath as discrete args — no shell injection
+            execFileSync('git', ['worktree', 'add', '-b', branch, worktreePath], {
                 encoding: 'utf-8',
                 stdio: 'pipe',
             });

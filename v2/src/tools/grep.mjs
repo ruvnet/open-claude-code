@@ -9,8 +9,11 @@
  * - glob filter and type filter
  * - head_limit (default 250)
  * - multiline mode
+ *
+ * Security: uses execFileSync (array-based) so pattern, glob, type, and dir
+ * are never interpolated into a shell string — no command injection.
  */
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import path from 'path';
 
 export const GrepTool = {
@@ -96,16 +99,28 @@ export const GrepTool = {
                 args.push('--', input.pattern, dir);
             }
 
-            // Apply head_limit
-            const cmd = limit > 0
-                ? `${args.join(' ')} 2>/dev/null | head -${limit}`
-                : `${args.join(' ')} 2>/dev/null`;
+            // args[0] is the tool name (rg/grep); the rest are arguments.
+            // Use execFileSync so nothing is shell-interpolated.
+            const tool = args.shift(); // 'rg' or 'grep'
+            let result;
+            try {
+                result = execFileSync(tool, args, {
+                    encoding: 'utf-8',
+                    maxBuffer: 10 * 1024 * 1024,
+                    timeout: 30000,
+                });
+            } catch (e) {
+                // exit code 1 from grep/rg means no matches — not an error
+                result = e.stdout || '';
+            }
 
-            const result = execSync(cmd, {
-                encoding: 'utf-8',
-                maxBuffer: 10 * 1024 * 1024,
-                timeout: 30000,
-            });
+            // Apply head_limit by slicing lines in JS (no shell pipe needed)
+            if (limit > 0) {
+                const lines = result.split('\n');
+                if (lines.length > limit) {
+                    result = lines.slice(0, limit).join('\n');
+                }
+            }
 
             return result.trim() || 'No matches found.';
         } catch {
@@ -118,7 +133,7 @@ let _hasRg = null;
 function hasRipgrep() {
     if (_hasRg !== null) return _hasRg;
     try {
-        execSync('which rg', { encoding: 'utf-8', timeout: 5000 });
+        execFileSync('which', ['rg'], { encoding: 'utf-8', timeout: 5000 });
         _hasRg = true;
     } catch {
         _hasRg = false;

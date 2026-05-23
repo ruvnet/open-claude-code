@@ -12,7 +12,7 @@
  * server process and communicate via JSON-RPC.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import path from 'path';
 
 export const LspTool = {
@@ -78,21 +78,35 @@ function getDiagnostics(filePath, language) {
     const ext = path.extname(filePath);
     const lang = language || extToLanguage(ext);
 
+    // Security: use execFileSync with explicit args arrays so filePath is
+    // never shell-interpolated — no command injection via crafted file names.
     try {
         switch (lang) {
             case 'typescript':
             case 'javascript': {
-                const result = execSync(
-                    `npx tsc --noEmit --pretty false "${filePath}" 2>&1 || true`,
-                    { encoding: 'utf-8', timeout: 15000 }
-                );
+                let result = '';
+                try {
+                    result = execFileSync(
+                        'npx',
+                        ['tsc', '--noEmit', '--pretty', 'false', filePath],
+                        { encoding: 'utf-8', timeout: 15000 }
+                    );
+                } catch (e) {
+                    result = e.stdout || e.stderr || '';
+                }
                 return result.trim() || 'No diagnostics.';
             }
             case 'python': {
-                const result = execSync(
-                    `python3 -m py_compile "${filePath}" 2>&1 || true`,
-                    { encoding: 'utf-8', timeout: 10000 }
-                );
+                let result = '';
+                try {
+                    result = execFileSync(
+                        'python3',
+                        ['-m', 'py_compile', filePath],
+                        { encoding: 'utf-8', timeout: 10000 }
+                    );
+                } catch (e) {
+                    result = e.stderr || e.stdout || '';
+                }
                 return result.trim() || 'No diagnostics.';
             }
             default:

@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 export class PluginLoader {
     /**
@@ -62,18 +62,26 @@ export class PluginLoader {
      * @returns {object|null} loaded manifest
      */
     async loadFromGit(repoUrl, name) {
+        // Security: validate repoUrl to only allow https:// or ssh git URLs,
+        // preventing shell metacharacter injection when passed to execFileSync.
+        if (typeof repoUrl !== 'string' ||
+            !/^(https?:\/\/|git@)[^\s;|&`$<>'"\\]+$/.test(repoUrl)) {
+            return null;
+        }
         const pluginName = name || repoUrl.split('/').pop()?.replace('.git', '') || 'plugin';
-        const targetDir = path.join(this.pluginDir, pluginName);
+        // Normalize plugin name to alphanumeric + hyphens only
+        const safePluginName = pluginName.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const targetDir = path.join(this.pluginDir, safePluginName);
 
         try {
             fs.mkdirSync(this.pluginDir, { recursive: true });
 
             if (fs.existsSync(targetDir)) {
-                // Update existing
-                execSync('git pull', { cwd: targetDir, stdio: 'pipe' });
+                // Update existing — cwd is explicit, no user data in args
+                execFileSync('git', ['pull'], { cwd: targetDir, stdio: 'pipe' });
             } else {
-                // Clone new
-                execSync(`git clone --depth 1 ${repoUrl} ${targetDir}`, { stdio: 'pipe' });
+                // Clone new — repoUrl and targetDir passed as discrete args, not shell string
+                execFileSync('git', ['clone', '--depth', '1', repoUrl, targetDir], { stdio: 'pipe' });
             }
 
             const manifestPath = path.join(targetDir, 'plugin.json');

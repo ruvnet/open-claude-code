@@ -5,7 +5,11 @@
  * - Brave Search API (BRAVE_API_KEY)
  * - SearXNG (self-hosted, SEARXNG_URL)
  * - Fallback: returns instructions to use web-fetch instead
+ *
+ * Security: validates that SEARXNG_URL does not target private/internal
+ * addresses (SSRF guard) before making requests.
  */
+import { isPrivateHost } from '../permissions/ssrf-check.mjs';
 
 export const WebSearchTool = {
     name: 'WebSearch',
@@ -32,9 +36,17 @@ export const WebSearchTool = {
             return searchBrave(input.query, limit, braveKey);
         }
 
-        // Try SearXNG
+        // Try SearXNG — validate the configured URL is not an internal host
         const searxUrl = process.env.SEARXNG_URL;
         if (searxUrl) {
+            try {
+                const parsed = new URL(searxUrl);
+                if (isPrivateHost(parsed.hostname)) {
+                    return 'SEARXNG_URL points to a private/internal address. Configure a public SearXNG instance.';
+                }
+            } catch {
+                return 'SEARXNG_URL is not a valid URL.';
+            }
             return searchSearxng(input.query, limit, searxUrl);
         }
 

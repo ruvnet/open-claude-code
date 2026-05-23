@@ -5,6 +5,8 @@
  * Messages are stored in a shared message queue.
  */
 
+import { randomBytes } from 'crypto';
+
 const messageQueue = new Map(); // agentId -> messages[]
 
 export const SendMessageTool = {
@@ -38,8 +40,10 @@ export const SendMessageTool = {
     },
 
     async call(input) {
+        // Use cryptographically secure random bytes for message IDs to
+        // prevent guessing/enumeration of message identifiers.
         const msg = {
-            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            id: `msg_${Date.now()}_${randomBytes(6).toString('hex')}`,
             from: process.env.AGENT_ID || 'main',
             to: input.to,
             type: input.type || 'notification',

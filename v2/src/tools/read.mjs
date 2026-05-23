@@ -11,7 +11,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 const DEFAULT_LIMIT = 2000;
 
@@ -118,20 +118,26 @@ export const ReadTool = {
 
 function readPdf(filePath, pages) {
     // PDF reading requires external tools; provide a best-effort
-    // text extraction using a simple approach
+    // text extraction using a simple approach.
+    // Security: use execFileSync with an explicit args array so filePath and
+    // page numbers are never shell-interpolated (no injection possible).
     try {
-        // Sanitize filePath for shell use
-        const safePath = filePath.replace(/'/g, "'\\''");
-        let pageArg = '-f 1 -l 20';
+        const args = [];
         if (pages) {
             const parts = pages.split('-');
             const first = parseInt(parts[0], 10);
             const last = parseInt(parts[parts.length - 1], 10);
             if (!isNaN(first) && !isNaN(last) && first > 0 && last >= first) {
-                pageArg = `-f ${first} -l ${last}`;
+                args.push('-f', String(first), '-l', String(last));
+            } else {
+                args.push('-f', '1', '-l', '20');
             }
+        } else {
+            args.push('-f', '1', '-l', '20');
         }
-        const text = execSync(`pdftotext ${pageArg} '${safePath}' - 2>/dev/null`, {
+        args.push(filePath, '-');
+
+        const text = execFileSync('pdftotext', args, {
             encoding: 'utf-8',
             timeout: 30000,
             maxBuffer: 1024 * 1024,
