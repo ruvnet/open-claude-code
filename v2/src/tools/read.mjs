@@ -11,6 +11,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 
 const DEFAULT_LIMIT = 2000;
 
@@ -119,9 +120,18 @@ function readPdf(filePath, pages) {
     // PDF reading requires external tools; provide a best-effort
     // text extraction using a simple approach
     try {
-        const { execSync } = await_import_child_process();
-        const pageArg = pages ? `-f ${pages.split('-')[0]} -l ${pages.split('-').pop()}` : '-f 1 -l 20';
-        const text = execSync(`pdftotext ${pageArg} "${filePath}" - 2>/dev/null`, {
+        // Sanitize filePath for shell use
+        const safePath = filePath.replace(/'/g, "'\\''");
+        let pageArg = '-f 1 -l 20';
+        if (pages) {
+            const parts = pages.split('-');
+            const first = parseInt(parts[0], 10);
+            const last = parseInt(parts[parts.length - 1], 10);
+            if (!isNaN(first) && !isNaN(last) && first > 0 && last >= first) {
+                pageArg = `-f ${first} -l ${last}`;
+            }
+        }
+        const text = execSync(`pdftotext ${pageArg} '${safePath}' - 2>/dev/null`, {
             encoding: 'utf-8',
             timeout: 30000,
             maxBuffer: 1024 * 1024,
@@ -130,9 +140,4 @@ function readPdf(filePath, pages) {
     } catch {
         return `[PDF file at ${filePath} — pdftotext not available. Install poppler-utils for PDF support.]`;
     }
-}
-
-// Lazy import helper
-function await_import_child_process() {
-    return require('child_process');
 }

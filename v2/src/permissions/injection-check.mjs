@@ -10,7 +10,7 @@ const DANGEROUS_PATTERNS = [
     { pattern: /\|\s*sh\b/, label: 'pipe to sh' },
     { pattern: /\|\s*bash\b/, label: 'pipe to bash' },
     { pattern: /`[^`]+`/, label: 'backtick execution' },
-    { pattern: /\$\([^)]+\)/, label: 'command substitution' },
+    { pattern: /\$\(/, label: 'command substitution' },
     { pattern: />\s*\/etc\//, label: 'write to /etc' },
     { pattern: />\s*\/usr\//, label: 'write to /usr' },
     { pattern: /curl\s.*\|\s*(bash|sh)/, label: 'curl pipe to shell' },
@@ -19,8 +19,9 @@ const DANGEROUS_PATTERNS = [
     { pattern: /dd\s+if=.*of=\/dev\//, label: 'dd to device' },
     { pattern: /:\(\)\s*\{.*\|.*&\s*\}/, label: 'fork bomb' },
     { pattern: /chmod\s+777\s+\//, label: 'chmod 777 root' },
-    { pattern: />\s*\/dev\/sda/, label: 'write to disk device' },
+    { pattern: />\s*\/dev\/sd[a-z]/, label: 'write to disk device' },
     { pattern: /eval\s+"?\$/, label: 'eval variable' },
+    { pattern: /\bexec\s+\d+[<>]/, label: 'exec fd redirect' },
 ];
 
 /**

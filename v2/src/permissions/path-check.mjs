@@ -16,6 +16,8 @@ const SENSITIVE_PATTERNS = [
     /\.key$/,
     /id_rsa$/,
     /id_ed25519$/,
+    /id_ecdsa$/,
+    /id_dsa$/,
     /\.ssh\/config$/,
     /\.netrc$/,
     /\.pgpass$/,
@@ -23,6 +25,12 @@ const SENSITIVE_PATTERNS = [
     /\.docker\/config\.json$/,
     /secrets\.yaml$/,
     /secrets\.json$/,
+    /\.npmrc$/,
+    /\.pypirc$/,
+    /\.claude\/credentials$/,
+    /service[_-]?account.*\.json$/i,
+    /kubeconfig$/,
+    /\.kube\/config$/,
 ];
 
 /** Directories that should never be written to. */

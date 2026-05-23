@@ -5,8 +5,10 @@
 import { streamResponse, accumulateStream } from './streaming.mjs';
 import { ContextManager } from './context-manager.mjs';
 import { buildSystemPrompt } from './system-prompt.mjs';
-import fs from 'fs';
-import path from 'path';
+
+/** Maximum number of consecutive tool-use continuation turns before aborting. */
+const MAX_TOOL_RECURSION_DEPTH = 50;
+
 export function createAgentLoop({ model, tools, permissions, settings, hooks }) {
     const contextManager = new ContextManager(settings.maxContextTokens || 180000);
 
@@ -29,6 +31,15 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
     };
 
     async function* run(userMessage, options = {}) {
+        const depth = (options._depth || 0);
+
+        // Guard against runaway tool-call recursion
+        if (depth >= MAX_TOOL_RECURSION_DEPTH) {
+            yield { type: 'error', message: `Max tool recursion depth (${MAX_TOOL_RECURSION_DEPTH}) reached. Stopping to prevent infinite loop.` };
+            yield { type: 'stop', reason: 'max_recursion' };
+            return;
+        }
+
         // Add user message (skip for continuation turns)
         if (userMessage && !options.continuation) {
             state.messages = contextManager.addMessage(state.messages, {
@@ -180,7 +191,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
             state.messages.push({ role: 'user', content: toolResults });
 
             // Recursive: continue the loop after tool execution
-            yield* run(null, { continuation: true });
+            yield* run(null, { continuation: true, _depth: depth + 1 });
             return;
         }
 
@@ -193,7 +204,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
                     role: 'user',
                     content: '[System: A hook prevented stopping. Please continue with the task.]',
                 });
-                yield* run(null, { continuation: true });
+                yield* run(null, { continuation: true, _depth: depth + 1 });
                 return;
             }
         }

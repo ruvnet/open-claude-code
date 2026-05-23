@@ -108,10 +108,36 @@ export class SessionManager {
      * @param {object} state - agent loop state to restore into
      */
     importFromTeleport(data, state) {
-        const session = JSON.parse(Buffer.from(data, 'base64').toString());
-        state.messages = session.messages || [];
-        state.turnCount = session.turnCount || 0;
-        if (session.model) state.model = session.model;
+        if (typeof data !== 'string' || data.length === 0) {
+            throw new Error('Invalid teleport data: must be a non-empty string');
+        }
+
+        let session;
+        try {
+            session = JSON.parse(Buffer.from(data, 'base64').toString());
+        } catch {
+            throw new Error('Invalid teleport data: failed to decode or parse');
+        }
+
+        if (typeof session !== 'object' || session === null) {
+            throw new Error('Invalid teleport data: expected an object');
+        }
+
+        // Validate and sanitize messages — must be an array of {role, content}
+        const rawMessages = Array.isArray(session.messages) ? session.messages : [];
+        state.messages = rawMessages.filter(
+            (m) => m && typeof m.role === 'string' && (typeof m.content === 'string' || Array.isArray(m.content))
+        );
+
+        // Validate turn count
+        const turnCount = parseInt(session.turnCount, 10);
+        state.turnCount = isNaN(turnCount) || turnCount < 0 ? 0 : turnCount;
+
+        // Only allow known model strings (non-empty string, no shell injection)
+        if (typeof session.model === 'string' && /^[\w.:/-]{3,80}$/.test(session.model)) {
+            state.model = session.model;
+        }
+
         this.sessionId = `sess_teleport_${Date.now()}`;
     }
 

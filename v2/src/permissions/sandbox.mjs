@@ -44,7 +44,10 @@ export class Sandbox {
         // Allow specific writable directories
         if (opts.allowWrite) {
             for (const dir of opts.allowWrite) {
-                if (typeof dir === 'string' && dir.length > 0) {
+                // Validate: must be a non-empty absolute path with no shell metacharacters
+                if (typeof dir === 'string' && dir.length > 0 &&
+                    dir.startsWith('/') && !/[\s'"`$\\;|&<>(){}!]/.test(dir) &&
+                    !dir.includes('\0')) {
                     args.push('--bind', dir, dir);
                 }
             }
@@ -76,7 +79,10 @@ export class Sandbox {
         // Allow writes to specific directories
         if (opts.allowWrite) {
             for (const dir of opts.allowWrite) {
-                if (typeof dir === 'string' && dir.length > 0) {
+                // Validate: must be a non-empty absolute path with no shell/seatbelt metacharacters
+                if (typeof dir === 'string' && dir.length > 0 &&
+                    dir.startsWith('/') && !/['"\\;(){}]/.test(dir) &&
+                    !dir.includes('\0')) {
                     rules.push(`(allow file-write* (subpath "${dir}"))`);
                 }
             }

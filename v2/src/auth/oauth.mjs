@@ -6,6 +6,7 @@
  * - Authorization code + PKCE
  * - Token refresh
  * - Credential storage in ~/.claude/credentials
+ * - Codex (OpenAI) OAuth via CODEX_CLIENT_ID / OPENAI_CLIENT_ID env vars
  */
 
 import crypto from 'crypto';
@@ -13,22 +14,61 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
+/**
+ * Well-known provider presets.
+ * Consumers can pass `provider: 'codex'` (or `'openai'`) to switch endpoints.
+ */
+const PROVIDER_PRESETS = {
+    anthropic: {
+        authUrl: 'https://console.anthropic.com/oauth/authorize',
+        tokenUrl: 'https://console.anthropic.com/oauth/token',
+        deviceUrl: 'https://console.anthropic.com/oauth/device',
+    },
+    codex: {
+        authUrl: 'https://auth.openai.com/authorize',
+        tokenUrl: 'https://auth.openai.com/oauth/token',
+        deviceUrl: 'https://auth.openai.com/oauth/device/code',
+    },
+    openai: {
+        authUrl: 'https://auth.openai.com/authorize',
+        tokenUrl: 'https://auth.openai.com/oauth/token',
+        deviceUrl: 'https://auth.openai.com/oauth/device/code',
+    },
+};
+
 export class OAuthClient {
     /**
      * @param {string} clientId - OAuth client ID
      * @param {object} [options]
-     * @param {string} [options.authUrl] - authorization endpoint
-     * @param {string} [options.tokenUrl] - token endpoint
-     * @param {string} [options.deviceUrl] - device authorization endpoint
+     * @param {string} [options.provider] - 'anthropic' | 'codex' | 'openai' (default: 'anthropic')
+     * @param {string} [options.authUrl] - authorization endpoint (overrides provider preset)
+     * @param {string} [options.tokenUrl] - token endpoint (overrides provider preset)
+     * @param {string} [options.deviceUrl] - device authorization endpoint (overrides provider preset)
      * @param {string} [options.credentialsPath] - path to store credentials
      */
     constructor(clientId, options = {}) {
         this.clientId = clientId;
-        this.authUrl = options.authUrl || 'https://console.anthropic.com/oauth/authorize';
-        this.tokenUrl = options.tokenUrl || 'https://console.anthropic.com/oauth/token';
-        this.deviceUrl = options.deviceUrl || 'https://console.anthropic.com/oauth/device';
+
+        const preset = PROVIDER_PRESETS[options.provider] || PROVIDER_PRESETS.anthropic;
+        this.authUrl = options.authUrl || preset.authUrl;
+        this.tokenUrl = options.tokenUrl || preset.tokenUrl;
+        this.deviceUrl = options.deviceUrl || preset.deviceUrl;
         this.credentialsPath = options.credentialsPath ||
             path.join(os.homedir(), '.claude', 'credentials');
+    }
+
+    /**
+     * Create a client pre-configured for Codex / OpenAI auth.
+     * Falls back to CODEX_CLIENT_ID → OPENAI_CLIENT_ID env vars.
+     * @param {object} [options]
+     * @returns {OAuthClient}
+     */
+    static forCodex(options = {}) {
+        const clientId = options.clientId ||
+            process.env.CODEX_CLIENT_ID ||
+            process.env.OPENAI_CLIENT_ID ||
+            'codex-default';
+        return new OAuthClient(clientId, { ...options, provider: 'codex' });
     }
 
     /**

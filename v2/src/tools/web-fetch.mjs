@@ -25,7 +25,11 @@ export const WebFetchTool = {
         const errors = [];
         if (!input.url) errors.push('url is required');
         try {
-            new URL(input.url);
+            const parsed = new URL(input.url);
+            // Only allow http and https protocols
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                errors.push('url must use http or https protocol');
+            }
         } catch {
             errors.push('url must be a valid URL');
         }

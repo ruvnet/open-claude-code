@@ -18,13 +18,25 @@ export class SkillsLoader {
 
     /**
      * Load skills from standard directories.
+     *
+     * When cwd equals process.cwd() (the default), also loads skills from the
+     * user's global ~/.claude/skills directory so that user-installed skills
+     * are always available.  When an explicit alternative cwd is provided,
+     * only that directory's .claude/skills is searched — this keeps unit tests
+     * hermetic and avoids leaking host-machine skills into isolated environments.
+     *
      * @param {string} [cwd] - project working directory
      */
     load(cwd = process.cwd()) {
-        this.searchPaths = [
-            path.join(cwd, '.claude', 'skills'),
-            path.join(process.env.HOME || '', '.claude', 'skills'),
-        ];
+        const isDefaultCwd = cwd === process.cwd();
+        this.searchPaths = [path.join(cwd, '.claude', 'skills')];
+
+        if (isDefaultCwd) {
+            const globalSkills = path.join(process.env.HOME || '', '.claude', 'skills');
+            if (globalSkills !== this.searchPaths[0]) {
+                this.searchPaths.push(globalSkills);
+            }
+        }
 
         for (const dir of this.searchPaths) {
             this._loadFromDir(dir);
