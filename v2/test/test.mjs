@@ -1148,10 +1148,13 @@ assert(foundTruncated, 'Micro-compaction truncates old tool results');
 
 section('Phase 2: System Prompt');
 
-import { buildSystemPrompt, loadClaudeMdFiles, toCacheBlocks } from '../src/core/system-prompt.mjs';
+import { buildSystemPrompt, loadClaudeMdFiles, toCacheBlocks, buildWorkspaceSnapshot } from '../src/core/system-prompt.mjs';
 
 const prompt = buildSystemPrompt({ cwd: '/tmp' });
 assertIncludes(prompt.full, 'AI coding assistant', 'System prompt has base text');
+assertIncludes(prompt.full, 'Current working directory:', 'System prompt declares cwd');
+assertIncludes(prompt.full, 'Workspace exploration rules', 'System prompt has exploration rules');
+assertIncludes(prompt.full, 'do NOT ask the user to paste', 'System prompt forbids asking user to paste code');
 assertType(prompt.staticPrefix, 'string', 'Has static prefix');
 assertType(prompt.dynamicSuffix, 'string', 'Has dynamic suffix');
 
@@ -1168,6 +1171,20 @@ const blocks = toCacheBlocks('static', 'dynamic');
 assertEqual(blocks.length, 2, 'Two cache blocks');
 assertEqual(blocks[0].cache_control.type, 'ephemeral', 'Static block cached');
 assert(blocks[1].cache_control === undefined, 'Dynamic block not cached');
+
+// buildWorkspaceSnapshot
+assertType(buildWorkspaceSnapshot, 'function', 'buildWorkspaceSnapshot is exported');
+const snapshot = buildWorkspaceSnapshot('/tmp');
+assertType(snapshot, 'string', 'Snapshot returns a string');
+// Non-existent path returns empty string gracefully
+const snapshotBad = buildWorkspaceSnapshot('/nonexistent_path_xyz_12345');
+assertEqual(snapshotBad, '', 'Non-existent path returns empty string');
+// Snapshot respects maxFiles cap: with maxFiles=1, we expect at most 1 entry
+// plus a possible "… (truncated)" line = 2 non-blank lines maximum. Allow
+// up to 3 to accommodate edge cases where /tmp itself is almost empty.
+const snapshotCapped = buildWorkspaceSnapshot('/tmp', 1);
+const snapshotLines = snapshotCapped.split('\n').filter(l => l.trim());
+assert(snapshotLines.length <= 3, 'Snapshot respects maxFiles cap (at most 1 entry + truncation line)');
 
 // ---------- Phase 3: CLI, UI, Commands Tests ----------
 

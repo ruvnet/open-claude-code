@@ -1,0 +1,77 @@
+name: Build & Release VSIX
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      upload_to_release:
+        description: 'Upload VSIX to the latest GitHub release'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-vsix:
+    name: Build VSIX
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: vscode-extension
+        run: npm install
+
+      - name: Lint extension source files
+        run: |
+          ERRORS=0
+          for file in vscode-extension/extension.js vscode-extension/agent-bridge.mjs; do
+            if [ -f "$file" ]; then
+              if ! node --check "$file" 2>/tmp/lint-err.txt; then
+                echo "::error file=${file}::Syntax error in ${file}"
+                cat /tmp/lint-err.txt
+                ERRORS=$((ERRORS + 1))
+              else
+                echo "::notice::${file} — OK"
+              fi
+            fi
+          done
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "::error::${ERRORS} extension file(s) have syntax errors"
+            exit 1
+          fi
+
+      - name: Package VSIX
+        working-directory: vscode-extension
+        run: npm run package
+
+      - name: Find VSIX file
+        id: find_vsix
+        working-directory: vscode-extension
+        run: |
+          VSIX_FILE=$(ls *.vsix | head -1)
+          echo "vsix_file=$VSIX_FILE" >> "$GITHUB_OUTPUT"
+          echo "vsix_path=vscode-extension/$VSIX_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload VSIX as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.find_vsix.outputs.vsix_file }}
+          path: ${{ steps.find_vsix.outputs.vsix_path }}
+          retention-days: 30
+
+      - name: Upload VSIX to GitHub Release
+        if: github.event_name == 'release' || inputs.upload_to_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.find_vsix.outputs.vsix_path }}
+          tag_name: ${{ github.event_name == 'release' && github.ref_name || '' }}

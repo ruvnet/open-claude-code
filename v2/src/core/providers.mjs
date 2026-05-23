@@ -1,7 +1,7 @@
 /**
  * Multi-Provider — unified provider config and request/response transforms.
  *
- * Supports: Anthropic, OpenAI, Google, Bedrock (stub), Vertex (stub).
+ * Supports: Anthropic, OpenAI, Google, NVIDIA, Bedrock (stub), Vertex (stub).
  * Each provider defines endpoint, auth headers, and optional transforms.
  */
 
@@ -140,6 +140,47 @@ const PROVIDERS = {
         },
     },
 
+    /**
+     * NVIDIA NIM — OpenAI-compatible endpoint hosted at integrate.api.nvidia.com.
+     *
+     * Supported models include:
+     *   moonshotai/kimi-k2.5          — Kimi K2.5 with extended thinking
+     *   nvidia/llama-3.1-nemotron-70b-instruct
+     *   meta/llama-3.1-405b-instruct
+     *   meta/llama-3.3-70b-instruct
+     *   mistralai/mistral-large-2-instruct
+     *   mistralai/mixtral-8x22b-instruct-v0.1
+     *   google/gemma-3-27b-it
+     *   deepseek-ai/deepseek-r1
+     *
+     * Auth: Bearer token via NVIDIA_API_KEY environment variable.
+     * Endpoint: https://integrate.api.nvidia.com/v1/chat/completions
+     * Streaming: OpenAI-style SSE (data: {...} lines ending with data: [DONE]).
+     */
+    nvidia: {
+        name: 'NVIDIA NIM',
+        endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        envKey: 'NVIDIA_API_KEY',
+        authHeader(key) {
+            return {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json',
+            };
+        },
+        models: [
+            'moonshotai/kimi-k2.5',
+            'nvidia/llama-3.1-nemotron-70b-instruct',
+            'meta/llama-3.1-405b-instruct',
+            'meta/llama-3.3-70b-instruct',
+            'mistralai/mistral-large-2-instruct',
+            'mistralai/mixtral-8x22b-instruct-v0.1',
+            'google/gemma-3-27b-it',
+            'deepseek-ai/deepseek-r1',
+        ],
+        /** Models that support extended thinking via chat_template_kwargs */
+        thinkingModels: ['moonshotai/kimi-k2.5', 'deepseek-ai/deepseek-r1'],
+    },
+
     bedrock: {
         name: 'AWS Bedrock',
         endpoint: null, // Dynamic based on region
@@ -178,7 +219,23 @@ export function getProvider(model) {
     if (model.startsWith('claude') || model.startsWith('anthropic')) return PROVIDERS.anthropic;
     if (model.startsWith('gpt') || model.startsWith('o1') || model.startsWith('o3')) return PROVIDERS.openai;
     if (model.startsWith('gemini')) return PROVIDERS.google;
+    // NVIDIA-hosted models use a namespaced format: "publisher/model-name"
+    if (isNvidiaModel(model)) return PROVIDERS.nvidia;
     return PROVIDERS.anthropic; // default
+}
+
+/**
+ * Return true when the model ID belongs to the NVIDIA NIM catalogue.
+ * NVIDIA models use the format "publisher/model-name".
+ */
+export function isNvidiaModel(model) {
+    if (!model || !model.includes('/')) return false;
+    const [publisher] = model.split('/');
+    const nvidiaPublishers = new Set([
+        'moonshotai', 'nvidia', 'meta', 'mistralai', 'google',
+        'deepseek-ai', 'microsoft', 'qwen', 'baichuan-inc',
+    ]);
+    return nvidiaPublishers.has(publisher);
 }
 
 /**

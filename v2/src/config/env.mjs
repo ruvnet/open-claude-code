@@ -17,6 +17,7 @@ export const ENV_SCHEMA = {
     OPENAI_BASE_URL: { type: 'string', default: 'https://api.openai.com/v1', description: 'OpenAI-compatible base URL' },
     GOOGLE_API_KEY: { type: 'string', description: 'Google AI API key' },
     GEMINI_API_KEY: { type: 'string', description: 'Alias for GOOGLE_API_KEY' },
+    NVIDIA_API_KEY: { type: 'string', description: 'NVIDIA NIM API key (integrate.api.nvidia.com)' },
 
     // Model Configuration
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: { type: 'number', default: 16384, description: 'Max output tokens' },

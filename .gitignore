@@ -6,6 +6,9 @@ dist/
 build/
 *.tgz
 
+# Bundled v2 source (copied by prepackage script, not committed)
+vscode-extension/v2/
+
 # Environment
 .env
 .env.local

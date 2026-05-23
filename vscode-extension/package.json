@@ -1,0 +1,216 @@
+{
+  "name": "open-claude-code",
+  "displayName": "Open Claude Code",
+  "description": "AI coding assistant powered by Claude — Cursor-style chat panel with file context, code apply, tool visualization and more",
+  "version": "1.4.0",
+  "publisher": "open-claude-code",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "claude",
+    "ai",
+    "chat",
+    "coding assistant",
+    "anthropic",
+    "cursor"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claude-code-sidebar",
+          "title": "Claude Code",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "claude-code-sidebar": [
+        {
+          "type": "webview",
+          "id": "claudeCode.chatView",
+          "name": "Chat",
+          "retainContextWhenHidden": true
+        }
+      ]
+    },
+    "chatParticipants": [
+      {
+        "id": "open-claude-code.claude",
+        "fullName": "Open Claude Code",
+        "name": "claude",
+        "description": "AI coding assistant powered by Claude. Ask about your code, run tools, edit files.",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "clear",
+            "description": "Clear conversation history and start a new session"
+          },
+          {
+            "name": "model",
+            "description": "Switch the model (e.g. @claude /model claude-opus-4-6)"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "openClaudeCode.setApiKey",
+        "title": "Open Claude Code: Set API Key"
+      },
+      {
+        "command": "openClaudeCode.clearSession",
+        "title": "Open Claude Code: Clear Session"
+      },
+      {
+        "command": "openClaudeCode.showStatus",
+        "title": "Open Claude Code: Show Status"
+      },
+      {
+        "command": "openClaudeCode.openChat",
+        "title": "Open Claude Code: Open Chat Panel"
+      },
+      {
+        "command": "openClaudeCode.applyCode",
+        "title": "Open Claude Code: Apply Code to Active File"
+      },
+      {
+        "command": "openClaudeCode.inlineEdit",
+        "title": "Open Claude Code: Inline Edit Selection (Ctrl+K)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "openClaudeCode.openChat",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c"
+      },
+      {
+        "command": "openClaudeCode.inlineEdit",
+        "key": "ctrl+k",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Open Claude Code",
+      "properties": {
+        "openClaudeCode.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-6",
+          "enum": [
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+            "claude-opus-4-6",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gemini-2.0-flash",
+            "moonshotai/kimi-k2.5",
+            "nvidia/llama-3.1-nemotron-70b-instruct",
+            "meta/llama-3.1-405b-instruct",
+            "meta/llama-3.3-70b-instruct",
+            "mistralai/mistral-large-2-instruct",
+            "mistralai/mixtral-8x22b-instruct-v0.1",
+            "deepseek-ai/deepseek-r1"
+          ],
+          "enumDescriptions": [
+            "Anthropic Claude Sonnet 4.6",
+            "Anthropic Claude Haiku 4.5",
+            "Anthropic Claude Opus 4.6",
+            "OpenAI GPT-4o",
+            "OpenAI GPT-4o Mini",
+            "Google Gemini 2.0 Flash",
+            "NVIDIA NIM — Moonshot AI Kimi K2.5 (full tool access; enable nvidiaThinkingMode for reasoning mode)",
+            "NVIDIA NIM — Llama 3.1 Nemotron 70B Instruct",
+            "NVIDIA NIM — Meta Llama 3.1 405B Instruct",
+            "NVIDIA NIM — Meta Llama 3.3 70B Instruct",
+            "NVIDIA NIM — Mistral Large 2 Instruct",
+            "NVIDIA NIM — Mixtral 8x22B Instruct",
+            "NVIDIA NIM — DeepSeek R1 (full tool access; enable nvidiaThinkingMode for reasoning mode)"
+          ],
+          "description": "AI model to use for the chat participant"
+        },
+        "openClaudeCode.nvidiaApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "NVIDIA NIM API key (from integrate.api.nvidia.com). Required when using any NVIDIA-hosted model."
+        },
+        "openClaudeCode.nvidiaThinkingMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable extended thinking (reasoning) mode for capable NVIDIA NIM models (kimi-k2.5, deepseek-r1). When enabled, the model reasons step-by-step but cannot use live tools (Read, Bash, Grep, etc.) — a workspace snapshot is injected instead. When disabled (default), these models use full tool-calling mode just like any other provider."
+        },
+        "openClaudeCode.permissionMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "auto",
+            "plan",
+            "acceptEdits",
+            "bypassPermissions"
+          ],
+          "default": "default",
+          "enumDescriptions": [
+            "Ask for permission before each tool use",
+            "Automatically approve safe operations",
+            "Plan mode — read only, no file edits",
+            "Automatically accept file edits without asking",
+            "Bypass all permission checks"
+          ],
+          "description": "Permission mode for file and shell operations"
+        },
+        "openClaudeCode.maxTurns": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum agentic tool-use turns per chat request"
+        },
+        "openClaudeCode.showToolOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show tool progress and results inline in chat"
+        },
+        "openClaudeCode.enableWebviewPanel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Cursor-style sidebar chat panel (requires reload)"
+        },
+        "openClaudeCode.autoAttachActiveFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically include the currently active editor file as context with every message sent"
+        },
+        "openClaudeCode.pinnedFiles": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "File paths pinned to every new conversation as context"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "prepackage": "node scripts/prepare-bundle.js",
+    "package": "vsce package --no-dependencies",
+    "postpackage": "node scripts/cleanup-bundle.js",
+    "install-vsix": "code --install-extension open-claude-code-1.4.0.vsix"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^2.32.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/codomium/CODE"
+  }
+}

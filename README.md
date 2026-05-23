@@ -7,12 +7,13 @@
 </p>
 
 <p align="center">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-1581_passing-brightgreen?style=flat-square" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-913_passing-brightgreen?style=flat-square" />
   <img alt="Tools" src="https://img.shields.io/badge/tools-25-blue?style=flat-square" />
   <img alt="Commands" src="https://img.shields.io/badge/commands-40-blue?style=flat-square" />
   <img alt="npm" src="https://img.shields.io/npm/v/@ruvnet/open-claude-code?style=flat-square&label=npm" />
   <img alt="License" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
   <img alt="Nightly" src="https://img.shields.io/badge/nightly-verified_releases-brightgreen?style=flat-square" />
+  <img alt="VSCode" src="https://img.shields.io/badge/VSCode-extension_v1.4.0-blue?style=flat-square&logo=visualstudiocode" />
 </p>
 
 > **Automated Nightly Releases** — Open Claude Code automatically detects new [Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code) releases, runs 903+ tests to verify zero regressions, and publishes verified builds with AI-powered discovery analysis. See [Releases](https://github.com/ruvnet/open-claude-code/releases) | [ADR-001](docs/adr/ADR-001-nightly-verified-release-pipeline.md) | [pi.ruv.io](https://pi.ruv.io)
@@ -39,6 +40,59 @@ occ
 export ANTHROPIC_API_KEY=sk-ant-...
 npx @ruvnet/open-claude-code "what files are in this directory?"
 ```
+
+---
+
+## 🖥️ VSCode Extension
+
+A **Cursor-style AI coding assistant** built directly into VSCode — no terminal required.
+
+### Quick install (pre-built VSIX)
+
+The extension package is included in the repo and ready to install:
+
+```bash
+code --install-extension vscode-extension/open-claude-code-1.4.0.vsix
+```
+
+Or use **Extensions → … → Install from VSIX…** and pick the file from the `vscode-extension/` folder.
+
+### Build from source
+
+```bash
+cd vscode-extension
+npm install
+npm run package          # prepackage → package → postpackage
+code --install-extension open-claude-code-1.4.0.vsix
+```
+
+### Highlights
+
+- **Dedicated activity bar icon** — opens a full Cursor-style chat panel in the sidebar
+- **`@claude` chat participant** — access Claude directly from VS Code's built-in Chat panel
+- **Full tool access** — all 25+ agent tools (Read, Write, Edit, Bash, Glob, Grep, WebFetch, …)
+- **Rich markdown + syntax highlighting** — code blocks with copy & Apply-to-file buttons
+- **Copy whole answer** — ⎘ Copy button on every assistant reply copies the full response to the clipboard
+- **Session memory** — the model remembers the **full conversation from the beginning** across VS Code restarts (Claude Premium-style); auto-saves after every response and restores on reopen
+- **Chat history** — History button shows all past conversations (Cursor-style panel); "New" auto-saves the current session; sessions persist across VS Code restarts; up to 30 sessions are retained
+- **▶ Resume** — any past session can be fully resumed: all messages are restored in the chat panel and the model's context is re-injected into the agent bridge
+- **⚙ Settings shortcut** — gear button in the header opens the extension settings directly — no need to navigate through the marketplace
+- **Streaming responses** — tokens arrive in real time with an animated cursor
+- **Tool visualization** — collapsible cards showing each tool execution and result
+- **`@file` context injection** — type `@filename` or click 📄 to add a file to the prompt
+- **`@git` context chip** — type `@git` or click the git button to inject current branch, changed files, and diff summary into the conversation
+- **`@errors` context chip** — type `@errors` or click the ⚠ button to inject all workspace errors and warnings (VSCode diagnostics) into the conversation
+- **`@openfiles` autocomplete** — type `@openfiles` to pick from your currently open editor tabs
+- **Auto-attach active file** — toggle the 🔗 button (or `openClaudeCode.autoAttachActiveFile` setting) to automatically include the active editor with every message
+- **Context-full warning** — a banner appears when the context window exceeds 85%, with a quick "New chat" shortcut
+- **Per-message response time** — each assistant reply shows how long it took to generate (visible on hover)
+- **Ctrl/Cmd+Enter** — additional keyboard shortcut for sending a message
+- **Multi-provider** — Anthropic Claude, OpenAI GPT, Google Gemini, NVIDIA NIM
+- **Model & permission-mode selector** — switch model and mode directly from the UI
+- **Session stats** — token count, cost estimate, and elapsed time always visible
+- **Proactive workspace analysis** — the agent explores your project automatically before answering; never asks you to paste code
+
+See [`vscode-extension/README.md`](./vscode-extension/README.md) for the full setup and configuration guide.
 
 ---
 
@@ -301,7 +355,12 @@ AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... occ -m bedrock/claude-sonnet "he
 
 # Google Vertex
 GOOGLE_APPLICATION_CREDENTIALS=... occ -m vertex/claude-sonnet "hello"
+
+# NVIDIA NIM (kimi-k2.5, deepseek-r1, and other thinking models supported)
+NVIDIA_API_KEY=nvapi-... occ -m kimi-k2.5 "hello"
 ```
+
+> **Note — NVIDIA models (Kimi K2.5, DeepSeek R1):** These models support **full tool-calling by default** — they can Read, Write, Bash, Grep, and run all 25+ agent tools exactly like Cursor or opencode. Set `NVIDIA_THINKING_MODE=true` (or toggle the `openClaudeCode.nvidiaThinkingMode` setting in the VSCode extension) to opt into extended reasoning mode; in that mode tools are replaced with a rich workspace snapshot injected into the system prompt (file tree + key file contents), since NVIDIA NIM does not allow tools and thinking simultaneously.
 
 ---
 
@@ -348,6 +407,81 @@ On March 31, 2026, Anthropic accidentally shipped source maps in the Claude Code
 ## ⚖️ Legal
 
 This is a **clean-room implementation** — no leaked source used. Architecture informed by analysis of the published npm package, legal under US DMCA §1201(f), EU Software Directive Art. 6, UK CDPA §50B.
+
+---
+
+## 🆕 What's New
+
+### v1.4.0 — Context Injection, Auto-Attach & UX Improvements
+
+**Richer context injection**
+- **`@git` chip** — type `@git` in the chat input (or click the new git toolbar button) to instantly inject the current branch name, `git status`, and `git diff --stat` as a context chip. The content is appended inline to your message so the model has full awareness of your working-tree state
+- **`@errors` chip** — type `@errors` (or click the ⚠ toolbar button) to pull all workspace errors and warnings from the VSCode diagnostics API into the conversation, grouped by severity
+- **`@openfiles` autocomplete** — type `@openfiles` to populate the `@` autocomplete dropdown with every file currently open in the editor, making it easy to add multiple files without typing paths
+- **Auto-attach active file** — click the new 🔗 toolbar button (or set `openClaudeCode.autoAttachActiveFile: true` in settings) to automatically include the currently active editor file with every message you send — no need to type `@` every time
+
+**UX improvements**
+- **Context-full warning banner** — a visible warning appears above the input when context usage exceeds 85%, with a one-click "New chat" shortcut to start fresh before responses degrade
+- **Per-message response time** — each assistant reply now shows how long it took to generate (e.g. `3.2s`) in the message header, visible on hover
+- **Ctrl/Cmd+Enter** — added as a second keyboard shortcut for sending messages (in addition to plain Enter)
+- **Consistent keyboard hint** — the input area now shows `Enter / Ctrl+Enter send` to surface the new shortcut
+
+### v1.3.1 — Bridge Stability & Session Memory Fixes
+
+- **Session memory loss fix** — agent bridge now auto-injects the full session history whenever a new bridge process is created (covers crashes, settings changes, and VS Code restarts)
+- **Bridge queue stability** — message queue is drained reliably on bridge restart so in-flight requests are not lost
+- **Max-turns UX hint** — when the agent loop hits its turn limit a visible `⚙ Max turns reached` notice is shown with instructions to continue
+
+### v1.3.0 — Session Memory (Claude Premium-style)
+
+**Session Memory algorithm** — the model now remembers the full conversation from the very beginning, just like Claude premium sessions:
+
+- **Auto-persist active session** — the current conversation is automatically saved to VS Code `globalState` after every response. If you close and reopen VS Code, your conversation is fully restored — messages in the chat panel **and** the model's context in the bridge subprocess
+- **Session resume from history** — every past conversation in the History panel now has a **▶ Resume** button. Clicking it:
+  1. Saves your current in-progress chat to history
+  2. Restores all messages of the selected session in the main chat panel
+  3. Re-injects the full conversation into the agent loop (`resume` command in `agent-bridge.mjs`) so the model has complete memory of everything said — no context lost
+- **New `resume` bridge protocol** — `agent-bridge.mjs` accepts `{"type":"resume","messages":[…]}` which converts the stored UI message format back to the Anthropic/OpenAI API message format and sets it directly on the agent loop's state
+- **Auto-clear on new chat** — starting a new conversation clears the persisted active session so the next restart begins fresh
+
+### v1.2.0 — Chat History, Settings Button & Copy Answer
+
+**New UI features** _(this PR)_
+- **⚙ Settings button** — a gear icon added to the chat header opens `openClaudeCode` settings directly; no more navigating through the Extensions marketplace
+- **⎘ Copy whole answer** — each finalized assistant reply now has a `⎘ Copy` button in the message header; one click copies the full raw markdown response to the clipboard
+- **Chat history panel (Cursor-style)** — clicking the new **History** header button opens a full-overlay panel listing all past sessions. Pressing **New** auto-saves the current conversation to history first. Sessions are persisted in VS Code `globalState` and survive restarts; up to 30 sessions are retained
+- **Cursor-style session navigation** — click any session in the history list to view its messages read-only (with Copy buttons intact); a Back button returns to the session list
+
+**Fix: Proactive workspace analysis for all models**
+- All models now receive a strong agentic system prompt declaring the workspace `cwd` and instructing them to explore files with LS / Glob / Read / Grep / Bash before answering — never asking the user to paste code
+- New `buildWorkspaceSnapshot` helper recursively walks the workspace (skipping `node_modules`, `.git`, `dist`, etc.) and returns a compact indented file tree capped at 200 entries
+- New `buildWorkspaceContent` helper reads key project files (README, package.json, entry points, etc.) and returns their contents for inline injection — capped at 64 KB total
+- **Kimi K2.5 and DeepSeek R1 now use full tool-calling by default** — Read, Write, Bash, Grep, and all 25+ tools work exactly like Cursor or opencode; thinking/reasoning mode is an opt-in setting (`NVIDIA_THINKING_MODE=true` or `openClaudeCode.nvidiaThinkingMode` in VSCode settings)
+- When thinking mode IS enabled a rich workspace snapshot (file tree + key file contents) is injected into the system prompt with a purpose-built thinking-model system prompt
+- Extension model descriptions updated; version bumped to 1.2.0
+
+### v1.1.0 — VSCode Extension & Bug Fixes
+
+**VSCode Extension — Cursor-style sidebar panel** _(PR #2)_
+- New dedicated activity bar icon with a full-screen Cursor-style chat panel
+- Rich markdown rendering, syntax-highlighted code blocks, copy & Apply-to-file buttons
+- Streaming responses with animated cursor, tool visualization cards, extended thinking blocks
+- `@file` context injection, file picker, model/mode selector, session stats, and stop button
+- Pre-built VSIX committed to `vscode-extension/open-claude-code-1.1.0.vsix` — install with one command
+
+**VSCode Extension — `@claude` Chat Participant** _(PR #1)_
+- New `vscode-extension/` package exposing the `v2/src` agent loop as a native VSCode Chat participant
+- Long-lived `agent-bridge.mjs` subprocess keeps conversation history across turns
+- API key stored in VSCode `SecretStorage` — never written to disk in plaintext
+- `/clear` and `/model` slash commands; configurable permission mode, max turns, and tool visibility
+
+**Fix: NVIDIA NIM thinking models** _(PR #3)_
+- `kimi-k2.5`, `deepseek-r1`, and other NVIDIA thinking models no longer crash with HTTP 400
+- Tool array is now omitted for thinking models (the two parameters are mutually exclusive)
+- Clean system prompt (without tool descriptions) is used for thinking-model calls
+
+**VSCode extension package now tracked in git** _(PR #4)_
+- `*.vsix` removed from `.gitignore` — the built package lives at `vscode-extension/open-claude-code-1.1.0.vsix`
 
 ---
 

@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--CSP_PLACEHOLDER-->
+  <title>Claude Code</title>
+  <link rel="stylesheet" href="<!--CSS_URI-->">
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <div id="header">
+    <span id="header-title">✦ Claude Code</span>
+    <span id="session-indicator" title=""></span>
+    <div id="header-spacer"></div>
+    <button class="header-btn" id="history-btn" title="Chat history">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="6"/>
+        <polyline points="8,5 8,8 10,10"/>
+      </svg>
+      History
+    </button>
+    <button class="header-btn" id="new-chat-btn" title="New conversation">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/>
+      </svg>
+      New
+    </button>
+    <button class="header-btn" id="settings-btn" title="Open Settings">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8" cy="8" r="2"/>
+        <path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M3.4 12.6l.7-.7M11.9 4.1l.7-.7"/>
+      </svg>
+    </button>
+    <button class="header-btn" id="export-btn" title="Export conversation as Markdown">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 2v9M5 8l3 3 3-3M2 13h12"/>
+      </svg>
+      Export
+    </button>
+    <button class="header-btn icon-only" id="autoscroll-btn" title="Auto-scroll: On (click to lock)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 2v8M5 7l3 3 3-3"/><line x1="2" y1="14" x2="14" y2="14"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Controls bar -->
+  <div id="controls">
+    <span class="control-label">Model</span>
+    <select id="model-select">
+      <optgroup label="Anthropic">
+        <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+        <option value="claude-opus-4-6">Opus 4.6</option>
+        <option value="claude-haiku-4-5">Haiku 4.5</option>
+      </optgroup>
+      <optgroup label="OpenAI">
+        <option value="gpt-4o">GPT-4o</option>
+        <option value="gpt-4o-mini">GPT-4o-mini</option>
+      </optgroup>
+      <optgroup label="Google">
+        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+      </optgroup>
+      <optgroup label="NVIDIA NIM">
+        <option value="moonshotai/kimi-k2.5">Kimi K2.5 ✦</option>
+        <option value="nvidia/llama-3.1-nemotron-70b-instruct">Nemotron 70B</option>
+        <option value="meta/llama-3.1-405b-instruct">Llama 3.1 405B</option>
+        <option value="meta/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+        <option value="mistralai/mistral-large-2-instruct">Mistral Large 2</option>
+        <option value="mistralai/mixtral-8x22b-instruct-v0.1">Mixtral 8x22B</option>
+        <option value="deepseek-ai/deepseek-r1">DeepSeek R1 ✦</option>
+      </optgroup>
+    </select>
+    <span class="control-label" style="margin-left:6px">Mode</span>
+    <select id="mode-select">
+      <option value="default">default</option>
+      <option value="auto">auto</option>
+      <option value="plan">plan</option>
+      <option value="acceptEdits">acceptEdits</option>
+      <option value="bypassPermissions">bypass</option>
+    </select>
+    <span class="control-spacer"></span>
+    <span class="control-label thinking-ctrl" id="thinking-label" style="display:none" title="Enable extended reasoning mode for Kimi K2.5 / DeepSeek R1 (disables live tools)">💭 Thinking</span>
+    <label class="toggle-switch thinking-ctrl" id="thinking-toggle-wrapper" style="display:none" title="Enable extended reasoning mode (disables live tools)">
+      <input type="checkbox" id="thinking-toggle">
+      <span class="toggle-slider"></span>
+    </label>
+    <button class="header-btn" id="actions-btn" title="Quick Actions panel — click common tasks without typing commands">
+      ⚡ Actions
+    </button>
+  </div>
+
+  <!-- Mode description bar (shown briefly when mode changes) -->
+  <div id="mode-desc-bar" style="display:none">
+    <span id="mode-desc-text"></span>
+  </div>
+
+  <!-- Quick Actions panel (collapsible) -->
+  <div id="quick-actions" style="display:none">
+    <div class="qa-section-label">✨ Code Tasks</div>
+    <div class="qa-grid">
+      <button class="qa-btn" data-template="Explain what this code does step by step:" data-icon="🔍">Explain</button>
+      <button class="qa-btn" data-template="Find and fix the bugs in this code. Explain what was wrong:" data-icon="🐛">Fix Bugs</button>
+      <button class="qa-btn" data-template="Write comprehensive unit tests for this code:" data-icon="🧪">Write Tests</button>
+      <button class="qa-btn" data-template="Refactor this code to be cleaner and more maintainable:" data-icon="🔧">Refactor</button>
+      <button class="qa-btn" data-template="Review this code for bugs, security issues, and improvements:" data-icon="👀">Review</button>
+      <button class="qa-btn" data-template="Generate clear documentation/JSDoc comments for this code:" data-icon="📝">Add Docs</button>
+      <button class="qa-btn" data-template="Generate a conventional commits style git commit message for these changes:" data-icon="💾">Commit Msg</button>
+      <button class="qa-btn" data-template="Optimize this code for better performance and explain the changes:" data-icon="⚡">Optimize</button>
+    </div>
+    <div class="qa-section-label" style="margin-top:6px">📁 Project Tasks</div>
+    <div class="qa-grid">
+      <button class="qa-btn" data-template="Create a plan to implement this feature step by step:" data-icon="🗺">Plan Feature</button>
+      <button class="qa-btn" data-template="Add error handling and input validation to this code:" data-icon="🛡">Add Guards</button>
+      <button class="qa-btn" data-template="Convert this code to TypeScript with proper types:" data-icon="🔷">To TypeScript</button>
+      <button class="qa-btn" data-template="List all TODO comments in the codebase and suggest fixes:" data-icon="✅">Fix TODOs</button>
+    </div>
+  </div>
+
+  <!-- Search bar (hidden until Ctrl+F) -->
+  <div id="search-bar" style="display:none">
+    <input type="text" id="search-input" placeholder="Search messages… (Enter=next, Esc=close)" autocomplete="off" spellcheck="false">
+    <span id="search-count"></span>
+    <button class="search-nav-btn" id="search-prev" title="Previous match">▲</button>
+    <button class="search-nav-btn" id="search-next" title="Next match">▼</button>
+    <button class="search-close-btn" id="search-close" title="Close search">✕</button>
+  </div>
+
+  <!-- Messages -->
+  <div id="messages">
+    <!-- Welcome / onboarding screen -->
+    <div id="welcome">
+
+      <!-- ── SETUP GUIDE (shown when no API key is configured) ──────────── -->
+      <div id="setup-guide" style="display:none">
+        <div class="setup-header">
+          <div class="setup-logo">✦</div>
+          <h2>Welcome to Claude Code</h2>
+          <p>Your AI coding assistant. Complete the steps below to get started.</p>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="setup-step" id="step-1">
+          <div class="step-badge">1</div>
+          <div class="step-body">
+            <div class="step-title">Get an API key</div>
+            <div class="step-desc">Choose a provider and create a free or paid API key.</div>
+            <div class="provider-grid">
+              <a class="provider-card" href="https://console.anthropic.com/settings/keys" id="link-anthropic">
+                <span class="provider-icon">🤖</span>
+                <span class="provider-name">Anthropic</span>
+                <span class="provider-hint">claude-sonnet</span>
+              </a>
+              <a class="provider-card" href="https://platform.openai.com/api-keys" id="link-openai">
+                <span class="provider-icon">⚡</span>
+                <span class="provider-name">OpenAI</span>
+                <span class="provider-hint">gpt-4o</span>
+              </a>
+              <a class="provider-card" href="https://aistudio.google.com/app/apikey" id="link-google">
+                <span class="provider-icon">🔵</span>
+                <span class="provider-name">Google</span>
+                <span class="provider-hint">gemini-2.0</span>
+              </a>
+              <a class="provider-card" href="https://integrate.api.nvidia.com" id="link-nvidia">
+                <span class="provider-icon">🟩</span>
+                <span class="provider-name">NVIDIA</span>
+                <span class="provider-hint">kimi-k2.5</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="setup-step" id="step-2">
+          <div class="step-badge">2</div>
+          <div class="step-body">
+            <div class="step-title">Add your API key to VS Code</div>
+            <div class="step-desc">
+              Click the button below or open the Command Palette
+              (<kbd>Ctrl+Shift+P</kbd> / <kbd>⌘+Shift+P</kbd>) and run
+              <strong>Open Claude Code: Set API Key</strong>.
+            </div>
+            <div class="setup-actions">
+              <button class="setup-btn primary" id="btn-set-key">🔑 Set API Key…</button>
+              <button class="setup-btn" id="btn-open-settings">⚙ Open Settings</button>
+            </div>
+            <div class="setup-note">
+              Alternatively, set an environment variable before launching VS Code:<br>
+              <code>export ANTHROPIC_API_KEY=sk-ant-...</code>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="setup-step" id="step-3">
+          <div class="step-badge">3</div>
+          <div class="step-body">
+            <div class="step-title">Start chatting</div>
+            <div class="step-desc">
+              Type a message in the box below and press <kbd>Enter</kbd>. Try:
+            </div>
+            <div class="example-prompts">
+              <div class="example-prompt" id="ex-1">explain this codebase</div>
+              <div class="example-prompt" id="ex-2">fix the bug in server.js</div>
+              <div class="example-prompt" id="ex-3">write unit tests for utils.ts</div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /#setup-guide -->
+
+      <!-- ── NORMAL WELCOME (shown when API key is already configured) ──── -->
+      <div id="welcome-normal" style="display:none">
+        <div class="setup-logo">✦</div>
+        <h2>Claude Code</h2>
+        <p>Your AI coding assistant. Ask questions, edit files, run commands, and more.</p>
+        <div class="welcome-tips-grid">
+          <div class="welcome-tip"><span class="tip-key">Enter</span> send message</div>
+          <div class="welcome-tip"><span class="tip-key">Shift+Enter</span> newline</div>
+          <div class="welcome-tip"><span class="tip-key">@file</span> add file to context</div>
+          <div class="welcome-tip"><span class="tip-key">📄</span> pick file from workspace</div>
+        </div>
+        <div class="welcome-examples">
+          <div class="welcome-example-label">Try asking:</div>
+          <div class="example-prompt" id="ex-w-1">explain this codebase</div>
+          <div class="example-prompt" id="ex-w-2">fix the bug in server.js</div>
+          <div class="example-prompt" id="ex-w-3">write unit tests for utils.ts</div>
+        </div>
+        <div id="welcome-recent" style="display:none">
+          <div class="welcome-section-label">Recent conversations</div>
+          <div id="welcome-recent-list"></div>
+        </div>
+      </div><!-- /#welcome-normal -->
+
+    </div><!-- /#welcome -->
+  </div>
+
+  <!-- Loading indicator -->
+  <div id="loading-indicator">
+    <div class="spinner-dots"><span></span><span></span><span></span></div>
+    <span id="loading-text">Thinking…</span>
+  </div>
+
+  <!-- Context warning (shown when context fills up) -->
+  <div id="context-warning" style="display:none">
+    <span id="context-warning-text"></span>
+    <button id="context-warning-new">New chat</button>
+  </div>
+
+  <!-- Context file chips -->
+  <div id="context-files" style="display:none"></div>
+
+  <!-- Input area -->
+  <div id="input-area">
+    <div id="input-wrapper">
+      <div id="autocomplete"></div>
+      <textarea
+        id="user-input"
+        rows="1"
+        placeholder="Ask Claude something… (@file for context)"
+        spellcheck="true"
+      ></textarea>
+      <div id="input-actions">
+        <button class="input-btn" id="add-file-btn" title="Add file to context">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="1" width="9" height="13" rx="1"/>
+            <path d="M8 1v4h4"/>
+            <path d="M11 1l2 2"/>
+          </svg>
+        </button>
+        <button class="input-btn" id="active-file-btn" title="Add currently open editor file to context">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M4 2h6l4 4v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/>
+            <path d="M9 2v4h4"/>
+            <line x1="6" y1="9" x2="10" y2="9"/>
+            <line x1="8" y1="7" x2="8" y2="11"/>
+          </svg>
+        </button>
+        <button class="input-btn ctx-inject-btn" id="git-btn" title="Inject git status into context — or type @git">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="5" cy="4" r="1.5"/><circle cx="11" cy="4" r="1.5"/>
+            <circle cx="8" cy="12" r="1.5"/>
+            <line x1="5" y1="5.5" x2="5" y2="8"/><line x1="11" y1="5.5" x2="11" y2="8"/>
+            <path d="M5 8 Q5 10 8 10.5 Q11 10 11 8"/>
+          </svg>
+        </button>
+        <button class="input-btn ctx-inject-btn" id="errors-btn" title="Inject workspace errors/warnings — or type @errors">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 2L1 13h14z"/><line x1="8" y1="7" x2="8" y2="10"/><circle cx="8" cy="12" r="0.6" fill="currentColor"/>
+          </svg>
+        </button>
+        <button class="input-btn ctx-inject-btn" id="auto-attach-btn" title="Auto-attach active file to every message (toggle)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M9.5 2.5l4 4-6.5 6.5-4-4 6.5-6.5z"/><line x1="2" y1="14" x2="5" y2="11"/>
+          </svg>
+        </button>
+        <button id="stop-btn" title="Stop generation">■ Stop</button>
+        <button id="send-btn" title="Send (Enter)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M14 8L2 2l3 6-3 6z"/>
+          </svg>
+          Send
+        </button>
+      </div>
+    </div>
+    <div id="input-hints">
+      <span><span class="hint-key">Enter</span> / <span class="hint-key">Ctrl+Enter</span> send</span>
+      <span><span class="hint-key">Shift+Enter</span> newline</span>
+      <span><span class="hint-key">Ctrl+L</span> focus</span>
+      <span><span class="hint-key">Esc</span> stop</span>
+      <span><span class="hint-key">@</span> add file</span>
+      <span id="char-count" class="char-count-hint"></span>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div id="stats-bar">
+    <span class="stat-item"><span class="dot"></span> <span id="stats-model">—</span></span>
+    <span class="stat-item">🪙 <span id="stats-tokens">0</span> tk</span>
+    <span class="stat-item"><span id="stats-cost">$0.0000</span></span>
+    <span class="stat-item" id="stats-msgs-item">💬 <span id="stats-msgs">0</span></span>
+    <div class="stat-spacer"></div>
+    <span class="stat-item" id="stats-speed-item" style="display:none">⚡ <span id="stats-speed">0</span> t/s</span>
+    <span class="stat-item">⏱ <span id="stats-time">0s</span></span>
+  </div>
+
+  <!-- Context window usage bar -->
+  <div id="context-bar" style="display:none">
+    <span id="context-bar-label">Context: <span id="context-used">0</span> / <span id="context-max">200k</span></span>
+    <div id="context-bar-track"><div id="context-bar-fill"></div></div>
+  </div>
+
+</div><!-- #app -->
+
+<!-- History Panel (absolute overlay inside #app) -->
+<div id="history-panel">
+  <div id="history-panel-header">
+    <button class="header-btn" id="history-back-btn" title="Back to list" style="display:none">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <polyline points="10,3 5,8 10,13"/>
+      </svg>
+      Back
+    </button>
+    <span id="history-panel-title">Chat History</span>
+    <div style="flex:1"></div>
+    <button class="header-btn" id="history-close-btn" title="Close history">✕</button>
+  </div>
+  <div id="history-search-bar">
+    <input id="history-search" type="text" placeholder="Filter conversations…" autocomplete="off" spellcheck="false">
+  </div>
+  <div id="history-list"></div>
+  <div id="history-session-view"></div>
+</div>
+
+<!-- Apply modal -->
+<div id="apply-modal">
+  <div id="apply-modal-inner">
+    <div id="apply-modal-header">
+      <span id="apply-modal-title">Apply code to file</span>
+      <button class="header-btn" id="apply-cancel-top">✕</button>
+    </div>
+    <div id="apply-modal-body"></div>
+    <div id="apply-modal-footer">
+      <button class="modal-btn" id="apply-cancel-btn">Cancel</button>
+      <button class="modal-btn" id="apply-pick-btn">Pick file…</button>
+      <button class="modal-btn primary" id="apply-confirm-btn">Apply to active file</button>
+    </div>
+  </div>
+</div>
+
+<script src="<!--JS_URI-->"></script>
+</body>
+</html>
