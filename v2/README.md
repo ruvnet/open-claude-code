@@ -7,6 +7,11 @@ export ANTHROPIC_API_KEY=sk-ant-...
 node src/index.mjs "hello"          # one-shot
 node src/index.mjs                   # interactive REPL
 node src/index.mjs -m claude-opus-4-6 -p "explain this"  # print mode
+
+# Or use DeepSeek
+export DEEPSEEK_API_KEY=sk-...
+node src/index.mjs -m deepseek-v4-flash "hello"
+node src/index.mjs -m deepseek-reasoner "explain this"
 ```
 
 ## Architecture
@@ -22,7 +27,7 @@ v2/src/
 │   ├── checkpoints.mjs      # File checkpointing + undo
 │   ├── cache.mjs            # Prompt caching
 │   ├── rate-limiter.mjs     # 429/529 handling + backoff
-│   ├── providers.mjs        # 5 AI providers
+│   ├── providers.mjs        # 6 AI providers (Anthropic, OpenAI, Google, DeepSeek, Bedrock, Vertex)
 │   └── scheduler.mjs        # Cron task scheduling
 ├── tools/                   # 25 tools
 │   ├── registry.mjs         # validateInput/call interface
@@ -97,17 +102,60 @@ test/
 |--------|:-----:|
 | Source files | 61 |
 | Lines of code | 8,314 |
-| Tests | 1,581 (0 failures) |
+| Tests | 956+ (0 failures) |
 | Tools | 25 |
 | Slash commands | 40 |
 | MCP transports | 4 |
-| AI providers | 5 |
-| Env vars | 104 |
+| AI providers | 6 |
+| Env vars | 106 |
 | Permission modes | 6 |
+
+## Supported Providers
+
+open-claude-code supports **6 AI providers**. Switch between them using the `--model` flag or `/model` slash command.
+
+| Provider | Env Key | Models |
+|----------|---------|--------|
+| Anthropic | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6`, `claude-haiku-4-5`, `claude-opus-4-6` |
+| OpenAI | `OPENAI_API_KEY` | `gpt-4o`, `gpt-4o-mini`, `o1-preview`, `o1-mini`, `o3-mini` |
+| Google | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | `gemini-2.0-flash`, `gemini-2.0-pro`, `gemini-1.5-flash` |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | `deepseek-chat`, `deepseek-reasoner`, `deepseek-v4-flash`, `deepseek-v4-pro` |
+| AWS Bedrock | `AWS_ACCESS_KEY_ID` | `anthropic.claude-3-sonnet`, `anthropic.claude-3-haiku` |
+| Google Vertex AI | `GOOGLE_APPLICATION_CREDENTIALS` | `claude-sonnet-4-6@anthropic` |
+
+### DeepSeek Details
+
+DeepSeek uses an **OpenAI-compatible API** (`https://api.deepseek.com/v1/chat/completions`) with Bearer token auth.
+
+- `deepseek-chat` — V3 general-purpose model
+- `deepseek-reasoner` — R1 reasoning model (emits `reasoning_content` displayed as thinking blocks)
+- `deepseek-v4-flash` — V4 fast/cheap model
+- `deepseek-v4-pro` — V4 premium model
+
+Set a custom base URL with `DEEPSEEK_BASE_URL` (default: `https://api.deepseek.com`).
+
+```bash
+export DEEPSEEK_API_KEY="sk-..."
+export DEEPSEEK_BASE_URL="https://api.deepseek.com"  # optional, for self-hosted
+
+occ -m deepseek-chat "write a script"
+occ -m deepseek-reasoner "prove this theorem"
+occ -m deepseek-v4-flash "quick question"
+occ -m deepseek-v4-pro "complex task"
+```
+
+DeepSeek pricing is automatically reflected in `/cost`:
+
+| Model | Input (per 1M tokens) | Output (per 1M tokens) |
+|-------|:---------------------:|:----------------------:|
+| `deepseek-chat` | $0.27 | $1.10 |
+| `deepseek-reasoner` | $0.55 | $2.19 |
+| `deepseek-v4-flash` | $0.15 | $0.60 |
+| `deepseek-v4-pro` | $0.35 | $1.50 |
 
 ## Tests
 
 ```bash
 node test/test.mjs
-# Tests: 1581 total, 1581 passed, 0 failed
+# Tests: 956 total, 956 passed, 0 failed
 ```

@@ -218,17 +218,18 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
 function detectProvider(model) {
     if (model.startsWith('gpt-') || model.startsWith('o1') || model.startsWith('o3')) return 'openai';
     if (model.startsWith('gemini')) return 'google';
+    if (model.startsWith('deepseek')) return 'deepseek';
     return 'anthropic';
 }
 
 async function callApi(provider, model, state, toolDefs, settings) {
-    const callers = { anthropic: callAnthropic, openai: callOpenAI, google: callGoogle };
+    const callers = { anthropic: callAnthropic, openai: callOpenAI, google: callGoogle, deepseek: callDeepSeek };
     const caller = callers[provider] || callers.anthropic;
     return caller(model, state, toolDefs, settings, false);
 }
 
 async function callApiStreaming(provider, model, state, toolDefs, settings) {
-    const callers = { anthropic: callAnthropic, openai: callOpenAI, google: callGoogle };
+    const callers = { anthropic: callAnthropic, openai: callOpenAI, google: callGoogle, deepseek: callDeepSeek };
     const caller = callers[provider] || callers.anthropic;
     return caller(model, state, toolDefs, settings, true);
 }
@@ -374,6 +375,196 @@ async function callGoogle(model, state, toolDefs, settings, stream) {
 
     const data = await res.json();
     return convertGoogleResponse(data);
+}
+
+async function callDeepSeek(model, state, toolDefs, settings, stream) {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) throw new Error('DEEPSEEK_API_KEY not set');
+
+    const messages = [];
+    if (state.systemPrompt) {
+        messages.push({ role: 'system', content: state.systemPrompt });
+    }
+    for (const msg of state.messages) {
+        if (typeof msg.content === 'string') {
+            messages.push({ role: msg.role, content: msg.content });
+        } else if (Array.isArray(msg.content)) {
+            for (const block of msg.content) {
+                if (block.type === 'tool_result') {
+                    messages.push({
+                        role: 'tool',
+                        tool_call_id: block.tool_use_id,
+                        content: block.content,
+                    });
+                }
+            }
+        }
+    }
+
+    const tools = toolDefs.map(t => ({
+        type: 'function',
+        function: { name: t.name, description: t.description, parameters: t.input_schema },
+    }));
+
+    const body = {
+        model,
+        messages,
+        ...(tools.length > 0 && { tools }),
+        ...(stream && { stream: true }),
+    };
+
+    const baseUrl = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com';
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`DeepSeek API error ${res.status}: ${err}`);
+    }
+
+    if (stream) {
+        const collected = [];
+        const eventGenerator = async function* () {
+            // DeepSeek uses OpenAI-compatible SSE streaming format
+            for await (const event of streamResponse(res)) {
+                collected.push(event);
+                yield event;
+            }
+        };
+        return {
+            events: eventGenerator(),
+            get accumulated() {
+                return accumulateFromCollectedDeepSeek(collected);
+            },
+        };
+    }
+
+    const data = await res.json();
+    return convertDeepSeekResponse(data);
+}
+
+function convertDeepSeekResponse(data) {
+    const choice = data.choices?.[0];
+    if (!choice) throw new Error('No choices in DeepSeek response');
+
+    const content = [];
+
+    // deepseek-reasoner returns reasoning_content alongside content
+    if (choice.message?.reasoning_content) {
+        content.push({ type: 'thinking', thinking: choice.message.reasoning_content });
+    }
+    if (choice.message?.content) {
+        content.push({ type: 'text', text: choice.message.content });
+    }
+
+    if (choice.message?.tool_calls) {
+        for (const tc of choice.message.tool_calls) {
+            content.push({
+                type: 'tool_use',
+                id: tc.id,
+                name: tc.function.name,
+                input: JSON.parse(tc.function.arguments || '{}'),
+            });
+        }
+    }
+
+    return {
+        content,
+        stop_reason: choice.finish_reason === 'stop' ? 'end_turn' : choice.finish_reason,
+        usage: {
+            input_tokens: data.usage?.prompt_tokens || 0,
+            output_tokens: data.usage?.completion_tokens || 0,
+        },
+    };
+}
+
+function accumulateFromCollectedDeepSeek(events) {
+    const message = {
+        content: [],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0 },
+    };
+
+    // DeepSeek streaming uses OpenAI-compatible SSE format:
+    // data: {"choices":[{"delta":{"content":"..."},"index":0}]}
+    // data: [DONE]
+    for (const event of events) {
+        if (event.type === 'done') break;
+        if (!event.choices) continue;
+
+        const choice = event.choices[0];
+        if (!choice) continue;
+
+        // Track usage from the final chunk
+        if (event.usage) {
+            message.usage.input_tokens = event.usage.prompt_tokens || 0;
+            message.usage.output_tokens = event.usage.completion_tokens || 0;
+        }
+
+        const delta = choice.delta || {};
+
+        // deepseek-reasoner sends reasoning_content in streaming delta
+        if (delta.reasoning_content) {
+            // Find or create a thinking block
+            let thinkingBlock = message.content.find(c => c.type === 'thinking');
+            if (!thinkingBlock) {
+                thinkingBlock = { type: 'thinking', thinking: '' };
+                message.content.push(thinkingBlock);
+            }
+            thinkingBlock.thinking += delta.reasoning_content;
+        }
+
+        if (delta.content) {
+            let textBlock = message.content.find(c => c.type === 'text');
+            if (!textBlock) {
+                textBlock = { type: 'text', text: '' };
+                message.content.push(textBlock);
+            }
+            textBlock.text += delta.content;
+        }
+
+        if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) {
+                let existing = message.content.find(
+                    c => c.type === 'tool_use' && c.id === tc.id
+                );
+                if (!existing) {
+                    existing = {
+                        type: 'tool_use',
+                        id: tc.id,
+                        name: tc.function?.name || '',
+                        input: '',
+                    };
+                    message.content.push(existing);
+                }
+                if (tc.function?.name) existing.name = tc.function.name;
+                if (tc.function?.arguments) existing.input += tc.function.arguments;
+            }
+        }
+
+        if (choice.finish_reason) {
+            message.stop_reason = choice.finish_reason === 'stop' ? 'end_turn' : choice.finish_reason;
+        }
+    }
+
+    // Parse tool_use input from accumulated JSON
+    for (const block of message.content) {
+        if (block.type === 'tool_use' && typeof block.input === 'string') {
+            try {
+                block.input = JSON.parse(block.input || '{}');
+            } catch {
+                block.input = {};
+            }
+        }
+    }
+
+    return message;
 }
 
 function convertOpenAIResponse(data) {

@@ -79,6 +79,11 @@ export const COMMANDS = {
             let priceIn = 3, priceOut = 15; // Sonnet default
             if (model.includes('haiku')) { priceIn = 0.25; priceOut = 1.25; }
             if (model.includes('opus')) { priceIn = 15; priceOut = 75; }
+            // DeepSeek pricing
+            if (model.includes('deepseek-reasoner')) { priceIn = 0.55; priceOut = 2.19; }
+            if (model.includes('deepseek-chat')) { priceIn = 0.27; priceOut = 1.10; }
+            if (model.includes('deepseek-v4-flash')) { priceIn = 0.15; priceOut = 0.60; }
+            if (model.includes('deepseek-v4-pro')) { priceIn = 0.35; priceOut = 1.50; }
 
             const costIn = (input / 1_000_000) * priceIn;
             const costOut = (output / 1_000_000) * priceOut;
@@ -98,15 +103,25 @@ export const COMMANDS = {
             const checks = [];
             checks.push(`Node.js: ${process.version}`);
             checks.push(`ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'set' : 'NOT SET'}`);
+            checks.push(`OPENAI_API_KEY: ${process.env.OPENAI_API_KEY ? 'set' : 'NOT SET'}`);
+            checks.push(`GOOGLE_API_KEY: ${process.env.GOOGLE_API_KEY ? 'set' : 'NOT SET'}`);
+            checks.push(`DEEPSEEK_API_KEY: ${process.env.DEEPSEEK_API_KEY ? 'set' : 'NOT SET'}`);
             checks.push(`Model: ${state.model || 'default'}`);
             checks.push(`Tools: ${state.tools?.list?.()?.length || 0}`);
             checks.push(`Messages: ${state.messages.length}`);
             checks.push(`CWD: ${process.cwd()}`);
             checks.push(`Platform: ${process.platform}`);
 
-            // Check API connectivity
+            // Check API connectivity based on current model
+            const model = state.model || '';
             let apiStatus = 'unchecked';
-            if (process.env.ANTHROPIC_API_KEY) {
+            if (model.startsWith('deepseek') && process.env.DEEPSEEK_API_KEY) {
+                apiStatus = 'key present';
+            } else if (model.startsWith('gpt') && process.env.OPENAI_API_KEY) {
+                apiStatus = 'key present';
+            } else if (model.startsWith('gemini') && process.env.GOOGLE_API_KEY) {
+                apiStatus = 'key present';
+            } else if (process.env.ANTHROPIC_API_KEY) {
                 apiStatus = 'key present';
             }
             checks.push(`API: ${apiStatus}`);

@@ -1243,6 +1243,23 @@ assertIncludes(tokResult, 'Context', '/tokens shows context');
 const costResult2 = COMMANDS['/cost'].handler('', phase3State);
 assertIncludes(costResult2, 'haiku', '/cost shows model name');
 
+// /cost with DeepSeek models
+const dsCostState = {
+    messages: [],
+    turnCount: 1,
+    tokenUsage: { input: 1000000, output: 500000 },
+    model: 'deepseek-v4-flash',
+    _contextManager: new ContextManager(10000),
+    tools: { list: () => [] },
+};
+const dsCostResult = COMMANDS['/cost'].handler('', dsCostState);
+assertIncludes(dsCostResult, 'deepseek-v4-flash', '/cost shows DeepSeek model name');
+assertIncludes(dsCostResult, '$0.45', '/cost shows correct DeepSeek pricing (1000000*0.15 + 500000*0.60)/1e6 = 0.45');
+
+const dsReasonerCost = { ...dsCostState, model: 'deepseek-reasoner', tokenUsage: { input: 1000, output: 500 } };
+const dsReasonerCostResult = COMMANDS['/cost'].handler('', dsReasonerCost);
+assertIncludes(dsReasonerCostResult, 'deepseek-reasoner', '/cost shows reasoner model');
+
 // /memory shows tokens
 const memResult2 = COMMANDS['/memory'].handler('', phase3State);
 assertIncludes(memResult2, 'tokens', '/memory shows token estimate');
@@ -1251,6 +1268,11 @@ assertIncludes(memResult2, 'tokens', '/memory shows token estimate');
 const docResult2 = COMMANDS['/doctor'].handler('', phase3State);
 assertIncludes(docResult2, 'API', '/doctor shows API status');
 assertIncludes(docResult2, 'MCP', '/doctor shows MCP status');
+
+// /doctor shows DeepSeek key check
+assertIncludes(docResult2, 'DEEPSEEK_API_KEY', '/doctor shows DeepSeek key check');
+assertIncludes(docResult2, 'OPENAI_API_KEY', '/doctor shows OpenAI key check');
+assertIncludes(docResult2, 'GOOGLE_API_KEY', '/doctor shows Google key check');
 
 // ========== PHASE 4: SECURITY & AUTH ==========
 
@@ -1687,6 +1709,113 @@ assertIncludes(vertexEndpoint, 'my-project', 'Vertex endpoint uses project');
 const keyCheck = checkProviderKeys();
 assert(keyCheck.length >= 5, 'Key check covers all providers');
 assert(keyCheck.every(k => typeof k.configured === 'boolean'), 'Key check has boolean configured');
+
+section('Phase 5: DeepSeek Provider');
+
+// Provider detection
+assertEqual(getProvider('deepseek-chat').name, 'DeepSeek', 'deepseek-chat -> DeepSeek');
+assertEqual(getProvider('deepseek-reasoner').name, 'DeepSeek', 'deepseek-reasoner -> DeepSeek');
+assertEqual(getProvider('deepseek-v4-flash').name, 'DeepSeek', 'deepseek-v4-flash -> DeepSeek');
+assertEqual(getProvider('deepseek-v4-pro').name, 'DeepSeek', 'deepseek-v4-pro -> DeepSeek');
+
+// Provider by name
+const dsProvider = getProviderByName('deepseek');
+assert(dsProvider !== undefined, 'DeepSeek provider exists by name');
+assertEqual(dsProvider.name, 'DeepSeek', 'DeepSeek name');
+assertEqual(dsProvider.envKey, 'DEEPSEEK_API_KEY', 'DeepSeek env key');
+
+// Models list
+assert(dsProvider.models.includes('deepseek-chat'), 'Has deepseek-chat model');
+assert(dsProvider.models.includes('deepseek-reasoner'), 'Has deepseek-reasoner model');
+assert(dsProvider.models.includes('deepseek-v4-flash'), 'Has deepseek-v4-flash model');
+assert(dsProvider.models.includes('deepseek-v4-pro'), 'Has deepseek-v4-pro model');
+assertEqual(dsProvider.models.length, 4, 'Exactly 4 DeepSeek models');
+
+// Endpoint
+assertEqual(dsProvider.endpoint, 'https://api.deepseek.com/v1/chat/completions', 'DeepSeek endpoint');
+
+// Auth headers
+const dsHeaders = PROVIDERS.deepseek.authHeader('test-key');
+assertEqual(dsHeaders['Authorization'], 'Bearer test-key', 'DeepSeek auth header is Bearer');
+assertEqual(dsHeaders['Content-Type'], 'application/json', 'DeepSeek content type');
+
+// DeepSeek request transform
+const dsReq = PROVIDERS.deepseek.transformRequest({
+    model: 'deepseek-chat',
+    system: 'You are helpful.',
+    messages: [{ role: 'user', content: 'Hello' }],
+    tools: [{ name: 'Bash', description: 'Run bash', input_schema: { type: 'object' } }],
+    max_tokens: 4096,
+    stream: true,
+});
+assertEqual(dsReq.model, 'deepseek-chat', 'DeepSeek transform keeps model');
+assert(dsReq.messages.length >= 2, 'DeepSeek transform includes system + user messages');
+assert(dsReq.tools.length === 1, 'DeepSeek transform has tools');
+assertEqual(dsReq.tools[0].type, 'function', 'DeepSeek tools are function type');
+assertEqual(dsReq.max_tokens, 4096, 'DeepSeek transform passes max_tokens');
+assertEqual(dsReq.stream, true, 'DeepSeek transform passes stream');
+
+// DeepSeek response transform (text-only)
+const dsRes = PROVIDERS.deepseek.transformResponse({
+    choices: [{ message: { content: 'Hello from DeepSeek' }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 15, completion_tokens: 8 },
+});
+assertEqual(dsRes.content[0].type, 'text', 'DeepSeek response has text content');
+assertEqual(dsRes.content[0].text, 'Hello from DeepSeek', 'DeepSeek response text');
+assertEqual(dsRes.stop_reason, 'end_turn', 'stop -> end_turn');
+assertEqual(dsRes.usage.input_tokens, 15, 'Input tokens mapped');
+assertEqual(dsRes.usage.output_tokens, 8, 'Output tokens mapped');
+
+// DeepSeek response transform (with reasoning_content from deepseek-reasoner)
+const dsReasonerRes = PROVIDERS.deepseek.transformResponse({
+    choices: [{
+        message: {
+            content: 'Final answer.',
+            reasoning_content: 'Let me think step by step...',
+        },
+        finish_reason: 'stop',
+    }],
+    usage: { prompt_tokens: 20, completion_tokens: 12 },
+});
+assertEqual(dsReasonerRes.content.length, 2, 'Reasoner response has 2 blocks (thinking + text)');
+assertEqual(dsReasonerRes.content[0].type, 'thinking', 'First block is thinking');
+assertEqual(dsReasonerRes.content[0].thinking, 'Let me think step by step...', 'Reasoning content preserved');
+assertEqual(dsReasonerRes.content[1].type, 'text', 'Second block is text');
+assertEqual(dsReasonerRes.content[1].text, 'Final answer.', 'Text content preserved');
+
+// DeepSeek response transform (with tool calls)
+const dsToolRes = PROVIDERS.deepseek.transformResponse({
+    choices: [{
+        message: {
+            content: 'Running command...',
+            tool_calls: [{
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'Bash', arguments: '{"command":"ls"}' },
+            }],
+        },
+        finish_reason: 'tool_use',
+    }],
+    usage: { prompt_tokens: 25, completion_tokens: 10 },
+});
+assertEqual(dsToolRes.content.length, 2, 'Tool response has 2 blocks (text + tool_use)');
+assertEqual(dsToolRes.content[0].text, 'Running command...', 'Tool response text');
+assertEqual(dsToolRes.content[1].type, 'tool_use', 'Second block is tool_use');
+assertEqual(dsToolRes.content[1].name, 'Bash', 'Tool name');
+assertEqual(dsToolRes.content[1].input.command, 'ls', 'Tool input parsed');
+
+// listProviders includes DeepSeek
+const dsProviderList = listProviders();
+const dsInList = dsProviderList.find(p => p.id === 'deepseek');
+assert(dsInList !== undefined, 'DeepSeek in provider list');
+assertEqual(dsInList.name, 'DeepSeek', 'Listed name correct');
+assertEqual(dsInList.envKey, 'DEEPSEEK_API_KEY', 'Listed envKey correct');
+assert(dsInList.hasEndpoint, 'DeepSeek has endpoint');
+
+// checkProviderKeys includes DeepSeek
+const dsKeyCheck = checkProviderKeys().find(k => k.id === 'deepseek');
+assert(dsKeyCheck !== undefined, 'DeepSeek in key check');
+assert(typeof dsKeyCheck.configured === 'boolean', 'DeepSeek key check has boolean');
 
 section('Phase 5: Scheduler');
 
