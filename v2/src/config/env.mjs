@@ -30,6 +30,8 @@ export const ENV_SCHEMA = {
     CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: { type: 'boolean', default: false, description: 'Enable agent teams' },
     CLAUDE_CODE_DEBUG: { type: 'boolean', default: false, description: 'Debug mode' },
     CLAUDE_CODE_DISABLE_TELEMETRY: { type: 'boolean', default: false, description: 'Disable telemetry' },
+    CLAUDE_CODE_SELF_OPTIMIZE: { type: 'boolean', default: false, description: 'Enable metaharness cost-cascade self-optimization (opt-in)' },
+    CLAUDE_CODE_OPTIMIZE_DIR: { type: 'string', description: 'Directory for self-optimization outcome store' },
 
     // Permission and Security
     CLAUDE_CODE_PERMISSION_MODE: { type: 'string', default: 'default', description: 'Permission mode' },

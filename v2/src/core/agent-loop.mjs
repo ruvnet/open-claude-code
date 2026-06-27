@@ -9,7 +9,7 @@ import { buildSystemPrompt } from './system-prompt.mjs';
 /** Maximum number of consecutive tool-use continuation turns before aborting. */
 const MAX_TOOL_RECURSION_DEPTH = 50;
 
-export function createAgentLoop({ model, tools, permissions, settings, hooks }) {
+export function createAgentLoop({ model, tools, permissions, settings, hooks, cascade = null }) {
     const contextManager = new ContextManager(settings.maxContextTokens || 180000);
 
     // Build system prompt using the new builder
@@ -28,7 +28,30 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
         model,
         tools,
         _contextManager: contextManager,
+        _cascade: cascade,
     };
+
+    // Self-optimization bookkeeping for the current top-level task (opt-in).
+    let _optTask = null; // { model, complexity, startedAt, tokensAtStart }
+
+    /** Record the outcome of the current task, if self-optimization is on. */
+    function recordOptOutcome(success) {
+        if (!cascade || !_optTask) return;
+        const inputDelta = state.tokenUsage.input - _optTask.tokensAtStart.input;
+        const outputDelta = state.tokenUsage.output - _optTask.tokensAtStart.output;
+        try {
+            cascade.recordOutcome({
+                model: _optTask.model,
+                success,
+                latencyMs: Date.now() - _optTask.startedAt,
+                inputTokens: inputDelta >= 0 ? inputDelta : 0,
+                outputTokens: outputDelta >= 0 ? outputDelta : 0,
+                complexity: _optTask.complexity,
+                task: _optTask.task,
+            });
+        } catch { /* best-effort */ }
+        _optTask = null;
+    }
 
     async function* run(userMessage, options = {}) {
         const depth = (options._depth || 0);
@@ -47,6 +70,22 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
                 content: userMessage,
             });
             state.turnCount++;
+
+            // Opt-in cost-cascade routing: pick the cheapest good-enough model
+            // for this task and record outcome bookkeeping. Default path (no
+            // cascade) leaves state.model exactly as constructed.
+            if (cascade) {
+                const route = cascade.decide(userMessage);
+                state.model = route.model;
+                state._lastRoute = route;
+                _optTask = {
+                    model: route.model,
+                    complexity: route.complexity,
+                    startedAt: Date.now(),
+                    tokensAtStart: { input: state.tokenUsage.input, output: state.tokenUsage.output },
+                    task: String(userMessage).slice(0, 120),
+                };
+            }
         }
 
         // Check max turns
@@ -64,14 +103,16 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
 
         yield { type: 'stream_request_start', turn: state.turnCount };
 
-        // Detect provider and call API
-        const provider = detectProvider(model);
+        // Detect provider and call API. Use state.model so an opt-in cascade
+        // pick takes effect; defaults to the constructed model otherwise.
+        const activeModel = state.model || model;
+        const provider = detectProvider(activeModel);
         let response;
 
         try {
             if (settings.stream !== false) {
                 // Streaming mode
-                response = await callApiStreaming(provider, model, state, tools.list(), settings);
+                response = await callApiStreaming(provider, activeModel, state, tools.list(), settings);
                 const collectedContent = [];
                 let currentText = '';
                 let currentThinking = '';
@@ -98,9 +139,10 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
                 response = response.accumulated;
             } else {
                 // Non-streaming mode
-                response = await callApi(provider, model, state, tools.list(), settings);
+                response = await callApi(provider, activeModel, state, tools.list(), settings);
             }
         } catch (err) {
+            recordOptOutcome(false);
             yield { type: 'error', message: err.message };
             return;
         }
@@ -208,6 +250,9 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks }) 
                 return;
             }
         }
+
+        // Task completed normally — record a successful outcome (opt-in).
+        recordOptOutcome(true);
 
         yield { type: 'stop', reason: response.stop_reason || 'end_turn' };
     }

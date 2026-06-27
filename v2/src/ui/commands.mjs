@@ -10,6 +10,7 @@ import { CheckpointManager } from '../core/checkpoints.mjs';
 import { PromptCache } from '../core/cache.mjs';
 import { readEnv, listEnvVars } from '../config/env.mjs';
 import * as telemetry from '../telemetry/index.mjs';
+import { OutcomeStore } from '../optimize/store.mjs';
 
 const checkpoints = new CheckpointManager();
 const promptCache = new PromptCache();
@@ -468,6 +469,36 @@ export const COMMANDS = {
         description: 'Create a release (stub)',
         handler() {
             return 'Release creation requires gh CLI. Run: gh release create <tag>';
+        },
+    },
+
+    '/optimize': {
+        description: 'Self-optimization router status / report (metaharness)',
+        handler(args, state) {
+            const sub = (args || '').trim().split(/\s+/)[0] || 'status';
+            const store = new OutcomeStore();
+            if (sub === 'report') {
+                const summary = store.summary();
+                if (summary.total === 0) return 'No recorded outcomes yet. Start occ with --self-optimize to collect real data.';
+                const lines = [`Optimization report — ${summary.total} outcomes`];
+                for (const [m, b] of Object.entries(summary.byModel)) {
+                    lines.push(`  ${m}: ${b.attempts} runs, ${(b.successRate * 100).toFixed(0)}% ok, ~$${b.costUsd.toFixed(4)}`);
+                }
+                lines.push(`  total est cost: $${summary.totalCostUsd.toFixed(4)}`);
+                return lines.join('\n');
+            }
+            if (sub === 'reset') {
+                return store.reset() ? 'Outcome store cleared.' : 'Nothing to reset.';
+            }
+            // status (default)
+            const enabled = !!(state && state._cascade);
+            const summary = store.summary();
+            return [
+                'MetaHarness self-optimization',
+                `  live router this session: ${enabled ? 'ON' : 'OFF (start with --self-optimize)'}`,
+                `  recorded outcomes:        ${summary.total}`,
+                `  store:                    ${store.filePath}`,
+            ].join('\n');
         },
     },
 };

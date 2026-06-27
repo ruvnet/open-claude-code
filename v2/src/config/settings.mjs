@@ -58,6 +58,10 @@ export const SETTINGS_SCHEMA = {
     agentId: null,
     cronEnabled: true,
     featureFlags: {},
+    // Metaharness self-optimization (opt-in; default OFF — behavior unchanged).
+    selfOptimize: false,
+    selfOptimizeQualityBar: 0.7,
+    selfOptimizeLadder: null,
 };
 
 export async function loadSettings() {
@@ -116,4 +120,6 @@ function applyEnvOverrides(settings) {
     if (process.env.CLAUDE_CODE_THINKING === '1') settings.alwaysThinkingEnabled = true;
     if (process.env.CLAUDE_CODE_DISABLE_CRON === '1') settings.cronEnabled = false;
     if (process.env.CLAUDE_CODE_ENABLE_TASKS === '1') settings.enableTeams = true;
+    if (process.env.CLAUDE_CODE_SELF_OPTIMIZE === '1') settings.selfOptimize = true;
+    if (process.env.CLAUDE_CODE_SELF_OPTIMIZE === '0') settings.selfOptimize = false;
 }

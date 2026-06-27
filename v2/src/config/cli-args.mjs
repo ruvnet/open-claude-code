@@ -32,6 +32,8 @@ export function parseArgs(args) {
         debug: false,
         showVersion: false,
         showHelp: false,
+        // Opt-in metaharness self-optimization. null = unset (defer to env/setting).
+        selfOptimize: null,
     };
 
     for (let i = 0; i < args.length; i++) {
@@ -86,6 +88,14 @@ export function parseArgs(args) {
                 result.debug = true;
                 break;
 
+            case '--self-optimize':
+                result.selfOptimize = true;
+                break;
+
+            case '--no-self-optimize':
+                result.selfOptimize = false;
+                break;
+
             case '--version':
                 result.showVersion = true;
                 break;
@@ -127,13 +137,23 @@ Options:
   --disallowedTools <tools>  Comma-separated list of denied tools
   --verbose, -v              Verbose output
   --debug, -d                Debug mode
+  --self-optimize            Route model calls through the metaharness cost-cascade
+                             (cheap base -> escalate) and record real outcomes (opt-in)
+  --no-self-optimize         Force self-optimization off (overrides env/setting)
   --version                  Show version
   --help, -h                 Show this help
+
+Subcommands:
+  occ optimize <status|route|report|reset|help>   Inspect/manage the self-optimization router (no model calls)
+  occ redblue [...]          Delegate to @metaharness/redblue CLI (self red/blue-team testing, via npx)
+  occ darwin  [...]          Delegate to @metaharness/darwin CLI (config evolution, via npx)
 
 Examples:
   occ                        Start interactive REPL
   occ -p "What is 2+2?"     Run prompt and exit
   occ -m claude-haiku-4-5    Use Haiku model
   occ --debug -p "Fix bug"  Debug mode with prompt
+  occ --self-optimize -p "..."   Run with the cost-cascade router enabled
+  occ optimize status        Show the router config and recorded outcomes
 `.trim();
 }

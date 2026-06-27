@@ -1844,6 +1844,240 @@ for (const [key, schema] of Object.entries(ENV_SCHEMA)) {
         `Env var ${key} has valid type`);
 }
 
+// ---------- MetaHarness Self-Optimization (opt-in layer) ----------
+
+section('MetaHarness: complexity estimator');
+{
+    const { estimateComplexity } = await import('../src/optimize/router.mjs');
+    assertEqual(estimateComplexity(''), 0, 'Empty string is complexity 0');
+    assertEqual(estimateComplexity(null), 0, 'Null is complexity 0');
+    assertEqual(estimateComplexity('what is 2+2'), 0, 'Trivial lookup is complexity 0');
+    const hard = estimateComplexity('refactor the distributed concurrency architecture and prove correctness across files');
+    assert(hard > 0.5, `Hard multi-signal task scores high (got ${hard})`);
+    const easy = estimateComplexity('rename a variable');
+    assert(easy < hard, 'Easy task scores lower than hard task');
+    const c = estimateComplexity('x'.repeat(100000));
+    assert(c >= 0 && c <= 1, 'Complexity is always clamped to [0,1]');
+    assert(estimateComplexity('design') === estimateComplexity('design'), 'Complexity is deterministic');
+}
+
+section('MetaHarness: router cost-cascade');
+{
+    const { MetaHarnessRouter, DEFAULT_LADDER, createRouter } = await import('../src/optimize/router.mjs');
+
+    assert(DEFAULT_LADDER.length === 3, 'Default ladder has 3 tiers');
+    assert(DEFAULT_LADDER[0].costPerMTok < DEFAULT_LADDER[2].costPerMTok, 'Ladder is cheapest-first');
+
+    const r = new MetaHarnessRouter();
+    const easyRoute = r.route('what is 2+2');
+    assertEqual(easyRoute.model, 'claude-haiku-4-5', 'Easy task routes to cheapest model');
+    assert(easyRoute.metBar, 'Easy task clears the quality bar on the cheap model');
+    assert(easyRoute.costPerMTok === 1.0, 'Cheap route reports cheap cost');
+
+    const hardRoute = r.route('refactor the distributed concurrency architecture, debug the race condition, prove correctness, optimize the algorithm across files end-to-end with a security review and migration');
+    assertEqual(hardRoute.model, 'claude-opus-4-6', 'Very hard task escalates to the top model');
+
+    // qualityBar=1 forces escalation since cheap models never reach 1.0 on non-trivial work
+    const strict = new MetaHarnessRouter({ qualityBar: 1.0 });
+    const strictRoute = strict.route('implement a feature with some complexity');
+    assert(strictRoute.model === 'claude-opus-4-6', 'Strict quality bar escalates to top model');
+
+    // escalate ladder walking
+    assertEqual(r.escalate('claude-haiku-4-5'), 'claude-sonnet-4-6', 'Escalate haiku -> sonnet');
+    assertEqual(r.escalate('claude-sonnet-4-6'), 'claude-opus-4-6', 'Escalate sonnet -> opus');
+    assertEqual(r.escalate('claude-opus-4-6'), null, 'Escalate from top model returns null');
+    assertEqual(r.escalate('unknown-model'), null, 'Escalate from unknown model returns null');
+
+    // self-tuning from recorded stats
+    let stats = { 'claude-haiku-4-5': { attempts: 5, successes: 0 } };
+    const tuned = new MetaHarnessRouter({
+        statsFor: (id) => {
+            const s = stats[id] || { attempts: 0, successes: 0 };
+            return { ...s, successRate: s.attempts ? s.successes / s.attempts : 0 };
+        },
+    });
+    const med = 'implement a migration script with optimization';
+    assert(tuned.route(med).model !== 'claude-haiku-4-5', 'Router avoids a model that keeps failing');
+
+    // createRouter returns a usable local router and probes for native pkg
+    const built = await createRouter();
+    assert(built.router instanceof MetaHarnessRouter, 'createRouter returns a MetaHarnessRouter');
+    assertEqual(built.backend, 'local', 'Default backend is local');
+    assertType(built.nativeAvailable, 'boolean', 'nativeAvailable is a boolean');
+}
+
+section('MetaHarness: outcome store');
+{
+    const { OutcomeStore, estimateCostUsd } = await import('../src/optimize/store.mjs');
+    const tmpFile = path.join(os.tmpdir(), `occ-opt-test-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    const store = new OutcomeStore(tmpFile);
+
+    assertEqual(store.all().length, 0, 'Fresh store is empty');
+    assertEqual(store.statsFor('claude-haiku-4-5').attempts, 0, 'No attempts for unknown model');
+
+    store.record({ model: 'claude-haiku-4-5', success: true, inputTokens: 1000, outputTokens: 500, costUsd: 0.0015, latencyMs: 1200 });
+    store.record({ model: 'claude-haiku-4-5', success: false, inputTokens: 800, outputTokens: 200, costUsd: 0.001, latencyMs: 900 });
+    store.record({ model: 'claude-sonnet-4-6', success: true, inputTokens: 2000, outputTokens: 1000, costUsd: 0.027, latencyMs: 3000 });
+
+    assertEqual(store.all().length, 3, 'Store has 3 records after 3 writes');
+    const hs = store.statsFor('claude-haiku-4-5');
+    assertEqual(hs.attempts, 2, 'Haiku has 2 attempts');
+    assertEqual(hs.successes, 1, 'Haiku has 1 success');
+    assertEqual(hs.successRate, 0.5, 'Haiku success rate is 0.5');
+
+    const summary = store.summary();
+    assertEqual(summary.total, 3, 'Summary total is 3');
+    assert(summary.byModel['claude-haiku-4-5'].attempts === 2, 'Summary tracks haiku attempts');
+    assert(summary.totalCostUsd > 0, 'Summary reports a positive total cost');
+
+    // task truncation
+    const longTask = 'x'.repeat(500);
+    const rec = store.record({ model: 'claude-haiku-4-5', success: true, task: longTask });
+    assert(rec.task.length <= 120, 'Long task descriptors are truncated to 120 chars');
+    assert(typeof rec.ts === 'number', 'Records get a timestamp');
+
+    // reset
+    assert(store.reset(), 'Reset succeeds');
+    assertEqual(store.all().length, 0, 'Store is empty after reset');
+
+    // cost estimate
+    assertEqual(estimateCostUsd(1_000_000, 0, 1.0), 1.0, '1M tokens at $1/M is $1');
+    assertEqual(estimateCostUsd(0, 0, 9.0), 0, 'Zero tokens is $0');
+    assertEqual(estimateCostUsd(500_000, 500_000, 10.0), 10.0, '1M total tokens at $10/M is $10');
+
+    // tolerant of corrupt lines
+    const corruptFile = path.join(os.tmpdir(), `occ-opt-corrupt-${Date.now()}.jsonl`);
+    fs.writeFileSync(corruptFile, '{"model":"a","success":true}\nnot json\n{"model":"b","success":false}\n');
+    const cs = new OutcomeStore(corruptFile);
+    assertEqual(cs.all().length, 2, 'Corrupt lines are skipped, valid ones parsed');
+    fs.unlinkSync(corruptFile);
+}
+
+section('MetaHarness: cascade controller');
+{
+    const { SelfOptimizeCascade, buildLadder, isSelfOptimizeEnabled } = await import('../src/optimize/cascade.mjs');
+    const { OutcomeStore } = await import('../src/optimize/store.mjs');
+
+    // enablement precedence: flag > env > setting, default OFF
+    assertEqual(isSelfOptimizeEnabled({}, {}, {}), false, 'Default is OFF');
+    assertEqual(isSelfOptimizeEnabled({ selfOptimize: true }, {}, {}), true, 'CLI flag enables');
+    assertEqual(isSelfOptimizeEnabled({ selfOptimize: false }, { selfOptimize: true }, { CLAUDE_CODE_SELF_OPTIMIZE: '1' }), false, 'CLI --no-self-optimize wins over env+setting');
+    assertEqual(isSelfOptimizeEnabled({}, {}, { CLAUDE_CODE_SELF_OPTIMIZE: '1' }), true, 'Env var enables');
+    assertEqual(isSelfOptimizeEnabled({}, { selfOptimize: true }, {}), true, 'Setting enables');
+    assertEqual(isSelfOptimizeEnabled({}, { selfOptimize: true }, { CLAUDE_CODE_SELF_OPTIMIZE: '0' }), false, 'Env 0 disables over setting');
+
+    // custom ladder
+    const customLadder = buildLadder({ selfOptimizeLadder: [{ id: 'cheap', costPerMTok: 0.5 }, { id: 'pricey', costPerMTok: 20 }] });
+    assertEqual(customLadder.length, 2, 'Custom ladder respected');
+    assertEqual(customLadder[0].id, 'cheap', 'Custom ladder ordered as given');
+    assert(buildLadder({}).length === 3, 'Empty settings falls back to default ladder');
+
+    const tmpFile = path.join(os.tmpdir(), `occ-cascade-${Date.now()}.jsonl`);
+    const cascade = new SelfOptimizeCascade({ settings: {}, store: new OutcomeStore(tmpFile) });
+
+    const decision = cascade.decide('what is 2+2');
+    assertEqual(decision.model, 'claude-haiku-4-5', 'Cascade routes easy task to cheapest');
+    assert(cascade.lastRoutes.length === 1, 'Cascade tracks last routes');
+
+    cascade.recordOutcome({ model: 'claude-haiku-4-5', success: true, inputTokens: 100, outputTokens: 50, complexity: 0.1, task: 'demo' });
+    const status = cascade.status();
+    assertEqual(status.summary.total, 1, 'Cascade records outcomes to its store');
+    assert(status.ladder.length === 3, 'Status reports the ladder');
+    assertEqual(cascade.escalate('claude-haiku-4-5'), 'claude-sonnet-4-6', 'Cascade escalate delegates to router');
+
+    fs.unlinkSync(tmpFile);
+}
+
+section('MetaHarness: subcommands');
+{
+    const { runOptimize, buildNpxArgs, delegateToCli } = await import('../src/optimize/commands.mjs');
+    const optDir = path.join(os.tmpdir(), `occ-cmd-${Date.now()}`);
+    process.env.CLAUDE_CODE_OPTIMIZE_DIR = optDir;
+
+    const status = await runOptimize(['status'], {});
+    assertEqual(status.code, 0, 'optimize status exits 0');
+    assertIncludes(status.output, 'self-optimization', 'Status mentions self-optimization');
+    assertIncludes(status.output, 'model ladder', 'Status lists the ladder');
+
+    const route = await runOptimize(['route', 'what is 2+2'], {});
+    assertEqual(route.code, 0, 'optimize route exits 0');
+    assertIncludes(route.output, 'claude-haiku-4-5', 'Route picks cheap model for easy task');
+    assertIncludes(route.output, 'no model was called', 'Route is decision-only');
+
+    const routeNoArg = await runOptimize(['route'], {});
+    assertEqual(routeNoArg.code, 2, 'optimize route with no task exits 2');
+
+    const emptyReport = await runOptimize(['report'], {});
+    assertIncludes(emptyReport.output, 'No recorded outcomes', 'Empty report is honest about no data');
+
+    const help = await runOptimize(['help'], {});
+    assertIncludes(help.output, 'Subcommands', 'Help lists subcommands');
+
+    const unknown = await runOptimize(['bogus'], {});
+    assertEqual(unknown.code, 0, 'Unknown subcommand falls through to help (exit 0)');
+
+    const reset = await runOptimize(['reset'], {});
+    assertEqual(reset.code, 0, 'optimize reset exits 0');
+
+    // npx arg builder (pure)
+    const npxArgs = buildNpxArgs('@metaharness/redblue', ['scan', '--quick']);
+    assertEqual(npxArgs[0], '-y', 'npx args start with -y');
+    assertEqual(npxArgs[1], '@metaharness/redblue', 'npx args include the package');
+    assertEqual(npxArgs[3], '--quick', 'npx args pass through');
+
+    // delegateToCli with injected fake spawn (no real process)
+    let spawnedWith = null;
+    const fakeSpawn = (cmd, argv) => {
+        spawnedWith = { cmd, argv };
+        return { on: (ev, cb) => { if (ev === 'exit') setTimeout(() => cb(0), 0); } };
+    };
+    const del = await delegateToCli('@metaharness/darwin', ['evolve'], { spawn: fakeSpawn });
+    assertEqual(del.code, 0, 'delegateToCli returns child exit code');
+    assertEqual(spawnedWith.cmd, 'npx', 'delegateToCli spawns npx');
+    assertEqual(spawnedWith.argv[1], '@metaharness/darwin', 'delegateToCli targets the right package');
+
+    delete process.env.CLAUDE_CODE_OPTIMIZE_DIR;
+    try { fs.rmSync(optDir, { recursive: true, force: true }); } catch {}
+}
+
+section('MetaHarness: CLI args + settings + env (opt-in surface)');
+{
+    // --self-optimize / --no-self-optimize parsing
+    assertEqual(parseArgs([]).selfOptimize, null, 'selfOptimize defaults to null (unset)');
+    assertEqual(parseArgs(['--self-optimize']).selfOptimize, true, '--self-optimize sets true');
+    assertEqual(parseArgs(['--no-self-optimize']).selfOptimize, false, '--no-self-optimize sets false');
+    // existing flags unaffected
+    assertEqual(parseArgs(['-p', 'hi']).prompt, 'hi', 'Existing -p flag still parses prompt');
+    assertEqual(parseArgs(['--self-optimize', '-p', 'hi']).prompt, 'hi', 'self-optimize coexists with prompt');
+
+    // settings defaults
+    assertEqual(SETTINGS_SCHEMA.selfOptimize, false, 'selfOptimize setting defaults false');
+    assertEqual(SETTINGS_SCHEMA.selfOptimizeQualityBar, 0.7, 'quality bar defaults to 0.7');
+
+    // env schema
+    assert(ENV_SCHEMA.CLAUDE_CODE_SELF_OPTIMIZE !== undefined, 'Has CLAUDE_CODE_SELF_OPTIMIZE env var');
+    assert(ENV_SCHEMA.CLAUDE_CODE_OPTIMIZE_DIR !== undefined, 'Has CLAUDE_CODE_OPTIMIZE_DIR env var');
+}
+
+section('MetaHarness: default behavior unchanged when disabled');
+{
+    // Agent loop without a cascade keeps its model and never touches the store.
+    const loop = createAgentLoop({
+        model: 'claude-sonnet-4-6',
+        tools: createToolRegistry(),
+        permissions: createPermissionChecker({ defaultMode: 'bypassPermissions' }),
+        settings: {},
+        hooks: null,
+    });
+    assertEqual(loop.state.model, 'claude-sonnet-4-6', 'Default loop keeps constructed model');
+    assertEqual(loop.state._cascade, null, 'Default loop has no cascade attached');
+
+    // /optimize slash command works read-only without a live cascade
+    const result = executeCommand('/optimize status', loop.state);
+    assertIncludes(result.response, 'self-optimization', '/optimize status renders');
+    assert(result.response.includes('OFF'), '/optimize reports OFF without a live cascade');
+}
+
 // ---------- Summary ----------
 
 console.log('\n========================================');

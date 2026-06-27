@@ -37,7 +37,26 @@ import { readEnv } from './config/env.mjs';
 import * as telemetry from './telemetry/index.mjs';
 
 async function main() {
-    const args = parseArgs(process.argv.slice(2));
+    const rawArgv = process.argv.slice(2);
+
+    // ── Metaharness subcommand dispatch (opt-in; runs before normal flow) ──
+    // `occ optimize|redblue|darwin ...` are handled here and exit. A normal
+    // `occ "prompt"` never reaches this branch, so default behavior is intact.
+    const subcommand = rawArgv[0];
+    if (subcommand === 'optimize' || subcommand === 'redblue' || subcommand === 'darwin') {
+        const settings = await loadSettings();
+        const { runOptimize, delegateToCli } = await import('./optimize/commands.mjs');
+        if (subcommand === 'optimize') {
+            const { output, code } = await runOptimize(rawArgv.slice(1), settings);
+            console.log(output);
+            process.exit(code);
+        }
+        const pkg = subcommand === 'redblue' ? '@metaharness/redblue' : '@metaharness/darwin';
+        const { code } = await delegateToCli(pkg, rawArgv.slice(1));
+        process.exit(code);
+    }
+
+    const args = parseArgs(rawArgv);
 
     // Handle --version
     if (args.showVersion) {
@@ -107,12 +126,29 @@ async function main() {
     const mcpResourceTool = tools.get('ReadMcpResource');
     if (mcpResourceTool) mcpResourceTool._mcpClients = mcpClients;
 
+    // ── Opt-in self-optimization cascade ──
+    // Only constructed when enabled (flag > env > setting). When null, the agent
+    // loop behaves exactly as before — same model, no outcome recording.
+    let cascade = null;
+    const { isSelfOptimizeEnabled } = await import('./optimize/cascade.mjs');
+    if (isSelfOptimizeEnabled(args, settings, process.env)) {
+        const { SelfOptimizeCascade } = await import('./optimize/cascade.mjs');
+        cascade = new SelfOptimizeCascade({
+            settings,
+            fallbackModel: args.model || settings.model || 'claude-sonnet-4-6',
+        });
+        if (args.verbose || settings.verbose) {
+            console.error('\x1b[2m[self-optimize] cost-cascade router enabled\x1b[0m');
+        }
+    }
+
     const loop = createAgentLoop({
         model: args.model || settings.model || 'claude-sonnet-4-6',
         tools,
         permissions,
         settings,
         hooks,
+        cascade,
     });
 
     // Attach extra state for commands to access
