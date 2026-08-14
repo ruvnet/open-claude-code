@@ -33,6 +33,10 @@ import { WebSocketTransport } from '../src/mcp/transport-ws.mjs';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
+
+const testFilePath = fileURLToPath(import.meta.url);
+const testTempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'occ-test-'));
 
 // ---------- Minimal test harness ----------
 
@@ -130,12 +134,12 @@ assertEqual(mcpResult, 'mcp result', 'MCP tool returns result');
 
 section('Tool Execution');
 
-const lsResult = await registry.call('LS', { path: '/tmp' });
+const lsResult = await registry.call('LS', { path: os.tmpdir() });
 assertType(lsResult, 'string', 'LS returns string');
-assertIncludes(lsResult, '/tmp', 'LS includes path');
+assertIncludes(lsResult, path.resolve(os.tmpdir()), 'LS includes path');
 
 // Read tool
-const readResult = await registry.call('Read', { file_path: import.meta.url.replace('file://', '') });
+const readResult = await registry.call('Read', { file_path: testFilePath });
 assertType(readResult, 'string', 'Read returns string');
 assertIncludes(readResult, 'Tool Registry', 'Read returns file content');
 
@@ -447,16 +451,18 @@ assertEqual(wsTransport.connected, false, 'WS not connected');
 
 section('Session Manager');
 
-const sessionMgr = new SessionManager('/tmp/occ-test-project');
+const sessionProjectDir = path.join(testTempRoot, 'occ-test-project');
+const sessionStorageRoot = path.join(testTempRoot, '.claude', 'projects');
+const sessionMgr = new SessionManager(sessionProjectDir, { storageRoot: sessionStorageRoot });
 assertIncludes(sessionMgr.sessionId, 'sess_', 'Session ID format');
 assert(sessionMgr.startedAt !== null, 'Started at set');
 
 const sessionDir = sessionMgr.getSessionDir();
 assertType(sessionDir, 'string', 'Session dir is string');
-assertIncludes(sessionDir, '.claude/projects', 'Session dir includes .claude/projects');
+assert(sessionDir.startsWith(sessionStorageRoot), 'Session dir uses configured storage root');
 
 const info = sessionMgr.info();
-assertEqual(info.projectDir, '/tmp/occ-test-project', 'Info has project dir');
+assertEqual(info.projectDir, sessionProjectDir, 'Info has project dir');
 assertIncludes(info.id, 'sess_', 'Info has session ID');
 
 // Save and resume
@@ -949,7 +955,7 @@ assertIncludes(bashExit, '42', 'Bash reports exit code');
 section('Phase 1: Read Tool (binary, limit, line numbers)');
 
 // Read: line number format (cat -n)
-const readLines = await registry.call('Read', { file_path: import.meta.url.replace('file://', '') });
+const readLines = await registry.call('Read', { file_path: testFilePath });
 assertIncludes(readLines, '1\t', 'Read has line number prefix');
 
 // Read: file not found
@@ -980,14 +986,14 @@ fs.unlinkSync(emptyFile);
 
 // Read: offset and limit
 const readOffset = await registry.call('Read', {
-    file_path: import.meta.url.replace('file://', ''),
+    file_path: testFilePath,
     offset: 5,
     limit: 3,
 });
 assertIncludes(readOffset, '6\t', 'Read offset starts at correct line');
 
 // Read: directory error
-const readDir = await registry.call('Read', { file_path: '/tmp' });
+const readDir = await registry.call('Read', { file_path: os.tmpdir() });
 assertIncludes(readDir, 'directory', 'Read rejects directory');
 
 section('Phase 1: Edit Tool (replace_all, uniqueness, read-first)');

@@ -8,9 +8,7 @@ node scripts/harness/validate-policy.mjs
 node scripts/harness/secret-scan.mjs
 
 echo "=== v2 static compile check ==="
-while IFS= read -r -d '' source_file; do
-  node --check "$source_file"
-done < <(find v2/src -type f -name '*.mjs' -print0)
+node scripts/harness/check-source-syntax.mjs
 
 echo "=== v2 package tests ==="
 if command -v npm.cmd >/dev/null 2>&1; then

@@ -9,6 +9,8 @@
  * - ANSI code stripping by default
  */
 import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 // Strip ANSI escape sequences
 function stripAnsi(str) {
@@ -17,6 +19,21 @@ function stripAnsi(str) {
 }
 
 const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB
+
+function getBashExecutable() {
+    if (process.platform !== 'win32') return 'bash';
+
+    const candidates = [
+        process.env.GIT_BASH_PATH,
+        process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Git', 'bin', 'bash.exe'),
+        process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Git', 'bin', 'bash.exe'),
+        process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Git', 'bin', 'bash.exe'),
+    ].filter(Boolean);
+
+    return candidates.find(candidate => fs.existsSync(candidate)) || 'bash.exe';
+}
+
+const bashExecutable = getBashExecutable();
 
 export const BashTool = {
     name: 'Bash',
@@ -49,7 +66,7 @@ export const BashTool = {
             let killed = false;
             let exitCode = null;
 
-            const proc = spawn('bash', ['-c', input.command], {
+            const proc = spawn(bashExecutable, ['-c', input.command], {
                 env: { ...process.env },
                 stdio: ['pipe', 'pipe', 'pipe'],
                 timeout: 0, // we handle timeout ourselves
@@ -122,7 +139,7 @@ let bgJobId = 0;
 
 function runBackground(command) {
     const id = ++bgJobId;
-    const proc = spawn('bash', ['-c', command], {
+    const proc = spawn(bashExecutable, ['-c', command], {
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
     });

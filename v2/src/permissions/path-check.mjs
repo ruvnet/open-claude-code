@@ -43,6 +43,12 @@ const PROTECTED_DIRS = [
     '/proc',
 ];
 
+const WINDOWS_PROTECTED_DIRS = [
+    'c:/windows',
+    'c:/program files',
+    'c:/program files (x86)',
+];
+
 /**
  * Validate a file path for safety.
  * @param {string} filePath - the path to validate
@@ -73,8 +79,15 @@ export function validatePath(filePath, options = {}) {
 
     // Check protected directories for writes
     if (options.write) {
+        const portableInput = path.posix.normalize(filePath.replace(/\\/g, '/')).toLowerCase();
         for (const dir of PROTECTED_DIRS) {
-            if (resolved.startsWith(dir + '/') || resolved === dir) {
+            if (portableInput.startsWith(dir + '/') || portableInput === dir) {
+                return { safe: false, resolved, reason: `Protected directory: ${dir}` };
+            }
+        }
+        const portableResolved = resolved.replace(/\\/g, '/').toLowerCase();
+        for (const dir of WINDOWS_PROTECTED_DIRS) {
+            if (portableResolved.startsWith(dir + '/') || portableResolved === dir) {
                 return { safe: false, resolved, reason: `Protected directory: ${dir}` };
             }
         }

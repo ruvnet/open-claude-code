@@ -6,5 +6,5 @@
 - [x] Run the report-only cleanup scanner, operational benchmark, and automated assessment.
 - [x] Run the session-end check and record its expected failure while the canonical gate is red.
 - [ ] Obtain an independent review of the harness diff.
-- [ ] Diagnose the eight project test failures reported by the canonical gate.
-- [ ] Rerun `./init.sh` and record passing structured evidence.
+- [x] Diagnose the Windows-specific project test failures reported by the canonical gate.
+- [x] Rerun `./init.sh` and record passing structured evidence.

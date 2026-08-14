@@ -11,8 +11,9 @@ import os from 'os';
 import crypto from 'crypto';
 
 export class SessionManager {
-    constructor(projectDir = process.cwd()) {
+    constructor(projectDir = process.cwd(), options = {}) {
         this.projectDir = projectDir;
+        this.storageRoot = options.storageRoot || path.join(os.homedir(), '.claude', 'projects');
         this.sessionId = `sess_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
         this.conversationId = null;
         this.startedAt = new Date().toISOString();
@@ -27,7 +28,7 @@ export class SessionManager {
             .digest('hex')
             .slice(0, 16);
 
-        return path.join(os.homedir(), '.claude', 'projects', hash);
+        return path.join(this.storageRoot, hash);
     }
 
     /**

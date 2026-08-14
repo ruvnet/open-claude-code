@@ -6,16 +6,16 @@
 - **Branch:** `main`
 - **Objective:** Upgrade the repository to the complete harness profile and establish a passing baseline.
 - **Status:** in-progress
-- **Canonical next action:** Diagnose the eight Windows-specific project test failures, then rerun `./init.sh`.
+- **Canonical next action:** Publish the prerequisite harness PR and obtain independent review.
 
 ## Verification Contract
 
 - **Command:** `./init.sh`
-- **Result:** Fail
-- **Count:** 983/991
-- **Captured:** 2026-08-14T21:47:32+12:00
+- **Result:** Pass
+- **Count:** 991/991 tests; 69 modules syntax-checked
+- **Captured:** 2026-08-14T21:58:41+12:00
 
-State, policy, secret scanning, and static compile checks passed. The project test stage exited 1 with 983 passed and 8 failed. No passing baseline or completion claim is recorded.
+State, policy, secret scanning, static compilation, and the project tests passed. Independent PR review remains outstanding, so completion is not yet claimed.
 
 ## Harness Evidence
 
@@ -42,5 +42,5 @@ State, policy, secret scanning, and static compile checks passed. The project te
 
 1. Read `AGENTS.md`, the state files, and `specs/feat-001-project-baseline`.
 2. Run `node scripts/harness/session-start.mjs` and stop on any error.
-3. Run `./init.sh` before expanding scope.
-4. Keep `feat-001` in progress until the canonical gate passes with exact structured evidence.
+3. Verify the prerequisite PR has independent review before expanding scope.
+4. Keep `feat-001` in progress until that review gate is satisfied.

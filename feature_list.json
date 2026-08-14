@@ -11,14 +11,14 @@
       ],
       "dependencies": [],
       "status": "in-progress",
-      "evidence": "Latest verification: `./init.sh` => Fail (983/991) at 2026-08-14T21:47:32+12:00. State, policy, secret scanning, and static compile checks passed; the project test stage exited 1 with 8 cross-platform path and formatting failures. No passing baseline is claimed.",
+      "evidence": "Latest verification: `C:\\Program Files\\Git\\bin\\bash.exe ./init.sh` => Pass (991/991 tests; 69 modules syntax-checked) at 2026-08-14T21:58:41+12:00. State, policy, and secret scanning also passed. Independent PR review remains outstanding, so completion is not yet claimed.",
       "owner": "primary-agent",
       "startedAt": "2026-08-14T21:32:14+12:00",
-      "updatedAt": "2026-08-14T21:49:10+12:00",
+      "updatedAt": "2026-08-14T21:58:41+12:00",
       "verificationCommands": [
         "./init.sh"
       ],
-      "recommendedNextStep": "Diagnose the eight Windows-specific test failures, rerun ./init.sh, and record passing structured evidence before marking the feature done."
+      "recommendedNextStep": "Publish the prerequisite harness PR and obtain independent review before marking the feature done."
     }
   ]
 }

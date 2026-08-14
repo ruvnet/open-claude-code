@@ -7,16 +7,16 @@
 - **Branch:** `main`
 - **Objective:** Upgrade the repository to the complete harness profile and establish a passing baseline.
 - **Status:** in-progress
-- **Canonical next action:** Diagnose the eight Windows-specific project test failures, then rerun `./init.sh`.
+- **Canonical next action:** Publish the prerequisite harness PR and obtain independent review.
 
 ## Verification Contract
 
 - **Command:** `./init.sh`
-- **Result:** Fail
-- **Count:** 983/991
-- **Captured:** 2026-08-14T21:47:32+12:00
+- **Result:** Pass
+- **Count:** 991/991 tests; 69 modules syntax-checked
+- **Captured:** 2026-08-14T21:58:41+12:00
 
-State, policy, secret scanning, and static compile checks passed. The project test stage exited 1 with 983 passed and 8 failed. Structural harness validation is tracked separately and cannot replace the canonical gate.
+State, policy, secret scanning, static compilation, and the project test stage passed. Independent PR review remains outstanding.
 
 ## Harness Evidence
 
@@ -48,5 +48,5 @@ State, policy, secret scanning, and static compile checks passed. The project te
 ## Next Action
 
 1. Obtain an independent review of the harness diff.
-2. Diagnose the eight Windows-specific project test failures.
-3. Rerun `./init.sh` and record exact passing evidence before changing feature status.
+2. Publish the prerequisite harness PR.
+3. Obtain independent review before changing feature status.

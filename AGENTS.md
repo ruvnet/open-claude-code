@@ -36,6 +36,13 @@ Required project check:
 
 Partial checks help diagnose failures but never replace the canonical completion gate.
 
+## Pull Requests
+
+- Use Conventional Commit titles in the form `type(scope): imperative summary`.
+- Allowed types are `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, and `chore`.
+- Keep the summary concise, lower-case, and free of a trailing period.
+- Build every PR body from `.github/PULL_REQUEST_TEMPLATE.md` without removing sections.
+
 ## Tool and Data Safety
 
 - Follow `.agents/policy.yml` and `docs/harness/TOOL-SAFETY.md`; untrusted workspaces and unlisted operations fail closed.

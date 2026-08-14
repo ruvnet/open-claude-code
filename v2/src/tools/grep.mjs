@@ -14,6 +14,7 @@
  * are never interpolated into a shell string — no command injection.
  */
 import { execFileSync } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 
 export const GrepTool = {
@@ -51,7 +52,12 @@ export const GrepTool = {
 
             // Build grep command — try rg first, fall back to grep
             const args = [];
-            const useRg = hasRipgrep();
+            const searchTool = getSearchTool();
+            const useRg = searchTool === 'rg';
+
+            if (!searchTool) {
+                return searchWithJavaScript(dir, input, mode, limit);
+            }
 
             if (useRg) {
                 args.push('rg');
@@ -78,7 +84,7 @@ export const GrepTool = {
 
                 args.push('--', input.pattern, dir);
             } else {
-                args.push('grep', '-r');
+                args.push(searchTool, '-r');
                 if (input['-i']) args.push('-i');
 
                 if (mode === 'files_with_matches') {
@@ -129,14 +135,79 @@ export const GrepTool = {
     },
 };
 
-let _hasRg = null;
-function hasRipgrep() {
-    if (_hasRg !== null) return _hasRg;
-    try {
-        execFileSync('which', ['rg'], { encoding: 'utf-8', timeout: 5000 });
-        _hasRg = true;
-    } catch {
-        _hasRg = false;
+let _searchTool;
+function getSearchTool() {
+    if (_searchTool !== undefined) return _searchTool;
+    for (const tool of ['rg', 'grep']) {
+        try {
+            execFileSync(tool, ['--version'], { timeout: 5000, stdio: 'ignore' });
+            _searchTool = tool;
+            return _searchTool;
+        } catch {
+            // Try the next executable.
+        }
     }
-    return _hasRg;
+    _searchTool = null;
+    return _searchTool;
+}
+
+function searchWithJavaScript(root, input, mode, limit) {
+    let expression;
+    try {
+        expression = new RegExp(input.pattern, input['-i'] ? 'i' : '');
+    } catch {
+        return 'No matches found.';
+    }
+
+    const output = [];
+    const files = fs.statSync(root).isDirectory() ? collectFiles(root) : [root];
+    for (const file of files) {
+        if (input.glob && !matchesGlob(path.basename(file), input.glob)) continue;
+        if (input.type && path.extname(file).slice(1) !== input.type) continue;
+
+        let content;
+        try {
+            content = fs.readFileSync(file, 'utf8');
+        } catch {
+            continue;
+        }
+        if (content.includes('\0')) continue;
+
+        const lines = content.split(/\r?\n/);
+        const matches = [];
+        lines.forEach((line, index) => {
+            expression.lastIndex = 0;
+            if (expression.test(line)) matches.push({ line, index });
+        });
+        if (matches.length === 0) continue;
+
+        if (mode === 'files_with_matches') {
+            output.push(file);
+        } else if (mode === 'count') {
+            output.push(`${file}:${matches.length}`);
+        } else {
+            for (const match of matches) {
+                output.push(input['-n'] === false ? match.line : `${file}:${match.index + 1}:${match.line}`);
+            }
+        }
+        if (limit > 0 && output.length >= limit) break;
+    }
+
+    return output.slice(0, limit > 0 ? limit : undefined).join('\n') || 'No matches found.';
+}
+
+function collectFiles(directory) {
+    const files = [];
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        const fullPath = path.join(directory, entry.name);
+        if (entry.isDirectory()) files.push(...collectFiles(fullPath));
+        else if (entry.isFile()) files.push(fullPath);
+    }
+    return files;
+}
+
+function matchesGlob(filename, glob) {
+    const escaped = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const pattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+    return new RegExp(`^${pattern}$`).test(filename);
 }
