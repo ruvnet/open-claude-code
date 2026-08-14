@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-14T09:48:19.941Z",
+  "sanitized": true,
+  "structural": {
+    "complete": true,
+    "present": 13,
+    "required": 13,
+    "missing": []
+  },
+  "operational": {
+    "complete": true,
+    "total": 8,
+    "passed": 8,
+    "failed": 0
+  },
+  "categories": [
+    {
+      "name": "stateAndLifecycle",
+      "weight": 20,
+      "score": 20,
+      "complete": true
+    },
+    {
+      "name": "verification",
+      "weight": 25,
+      "score": 25,
+      "complete": true
+    },
+    {
+      "name": "safety",
+      "weight": 25,
+      "score": 25,
+      "complete": true
+    },
+    {
+      "name": "contextMemoryCoordination",
+      "weight": 15,
+      "score": 15,
+      "complete": true
+    },
+    {
+      "name": "deliveryRecoveryContract",
+      "weight": 15,
+      "score": 15,
+      "complete": true
+    }
+  ],
+  "score": 100,
+  "passed": true,
+  "independentReviewRequired": true,
+  "decision": "Automated gates pass; independent review is still required."
+}

@@ -1,0 +1,371 @@
+{
+  "generatedAt": "2026-08-14T09:48:20.380Z",
+  "sanitized": true,
+  "target": ".",
+  "selfCheck": {
+    "pass": true,
+    "score": 100,
+    "targets": [
+      {
+        "agent": "codex",
+        "pass": true,
+        "score": 100,
+        "bottleneck": null
+      },
+      {
+        "agent": "claude",
+        "pass": true,
+        "score": 100,
+        "bottleneck": null
+      },
+      {
+        "agent": "both",
+        "pass": true,
+        "score": 100,
+        "bottleneck": null
+      }
+    ]
+  },
+  "harness": {
+    "profile": "complete",
+    "overall": 100,
+    "bottleneck": null,
+    "subsystems": {
+      "instructions": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Agent instruction file exists"
+          },
+          {
+            "pass": true,
+            "message": "Startup workflow documented"
+          },
+          {
+            "pass": true,
+            "message": "Definition of done documented"
+          },
+          {
+            "pass": true,
+            "message": "Verification commands discoverable"
+          },
+          {
+            "pass": true,
+            "message": "State artifacts routed from instructions"
+          }
+        ]
+      },
+      "state": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Feature tracker exists"
+          },
+          {
+            "pass": true,
+            "message": "Feature tracker is valid and has feature fields"
+          },
+          {
+            "pass": true,
+            "message": "Progress log exists"
+          },
+          {
+            "pass": true,
+            "message": "Progress log supports restart"
+          },
+          {
+            "pass": true,
+            "message": "Handoff captures blockers/files/next step"
+          }
+        ]
+      },
+      "verification": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Verification entrypoint exists"
+          },
+          {
+            "pass": true,
+            "message": "Verification fails fast"
+          },
+          {
+            "pass": true,
+            "message": "Test command documented"
+          },
+          {
+            "pass": true,
+            "message": "Static/build check documented"
+          },
+          {
+            "pass": true,
+            "message": "Verification evidence is recorded"
+          }
+        ]
+      },
+      "scope": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "One-feature-at-a-time rule exists"
+          },
+          {
+            "pass": true,
+            "message": "Feature dependencies are tracked"
+          },
+          {
+            "pass": true,
+            "message": "Feature status is explicit"
+          },
+          {
+            "pass": true,
+            "message": "Scope boundary documented"
+          },
+          {
+            "pass": true,
+            "message": "Completion gate limits scope closure"
+          }
+        ]
+      },
+      "lifecycle": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Startup script exists"
+          },
+          {
+            "pass": true,
+            "message": "End-of-session procedure exists"
+          },
+          {
+            "pass": true,
+            "message": "Session handoff template exists"
+          },
+          {
+            "pass": true,
+            "message": "Session restart markers exist"
+          },
+          {
+            "pass": true,
+            "message": "Clean restart path documented"
+          }
+        ]
+      },
+      "context": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Context map exists"
+          },
+          {
+            "pass": true,
+            "message": "Context tiers and budgets are explicit"
+          },
+          {
+            "pass": true,
+            "message": "Progressive disclosure is bounded"
+          },
+          {
+            "pass": true,
+            "message": "Stale context has an invalidation path"
+          },
+          {
+            "pass": true,
+            "message": "Root instructions route context loading"
+          }
+        ]
+      },
+      "memory": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Bounded memory index exists"
+          },
+          {
+            "pass": true,
+            "message": "Safe memory writer exists"
+          },
+          {
+            "pass": true,
+            "message": "Report-only memory cleanup exists"
+          },
+          {
+            "pass": true,
+            "message": "Memory bounds and secret screening are enforced"
+          },
+          {
+            "pass": true,
+            "message": "Memory path containment is enforced"
+          }
+        ]
+      },
+      "safety": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Default-deny policy exists"
+          },
+          {
+            "pass": true,
+            "message": "Policy validator exists"
+          },
+          {
+            "pass": true,
+            "message": "Secret scanner exists"
+          },
+          {
+            "pass": true,
+            "message": "Tool decisions and destructive boundaries are documented"
+          },
+          {
+            "pass": true,
+            "message": "Secrets and external mutations are protected"
+          }
+        ]
+      },
+      "coordination": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Coordination contract exists"
+          },
+          {
+            "pass": true,
+            "message": "Worker prompt contract exists"
+          },
+          {
+            "pass": true,
+            "message": "Work-unit validator exists"
+          },
+          {
+            "pass": true,
+            "message": "Ownership and tool boundaries are explicit"
+          },
+          {
+            "pass": true,
+            "message": "Recursive delegation is denied"
+          }
+        ]
+      },
+      "evaluation": {
+        "score": 5,
+        "passed": 5,
+        "total": 5,
+        "checks": [
+          {
+            "pass": true,
+            "message": "Quality contract exists"
+          },
+          {
+            "pass": true,
+            "message": "Evaluator rubric exists"
+          },
+          {
+            "pass": true,
+            "message": "Operational benchmark exists"
+          },
+          {
+            "pass": true,
+            "message": "Assessment runner exists"
+          },
+          {
+            "pass": true,
+            "message": "Automated scores do not replace independent review"
+          }
+        ]
+      }
+    }
+  },
+  "evals": {
+    "score": 100,
+    "passed": 14,
+    "total": 14,
+    "cases": 14,
+    "checks": [
+      {
+        "pass": true,
+        "message": "At least 10 eval cases"
+      },
+      {
+        "pass": true,
+        "message": "Covers minimal harness creation"
+      },
+      {
+        "pass": true,
+        "message": "Covers session continuity"
+      },
+      {
+        "pass": true,
+        "message": "Covers harness assessment"
+      },
+      {
+        "pass": true,
+        "message": "Covers verification workflow"
+      },
+      {
+        "pass": true,
+        "message": "Covers memory taxonomy"
+      },
+      {
+        "pass": true,
+        "message": "Covers tool safety"
+      },
+      {
+        "pass": true,
+        "message": "Covers multi-agent coordination"
+      },
+      {
+        "pass": true,
+        "message": "Covers complete one-step scaffolding"
+      },
+      {
+        "pass": true,
+        "message": "Covers CI and deployment safety"
+      },
+      {
+        "pass": true,
+        "message": "Covers evaluation integrity"
+      },
+      {
+        "pass": true,
+        "message": "Covers Codex and Claude Code compatibility"
+      },
+      {
+        "pass": true,
+        "message": "Each eval has prompt, expected output, expectations"
+      },
+      {
+        "pass": true,
+        "message": "Each eval has at least three expectation checks"
+      }
+    ]
+  },
+  "recommendation": "Ready for realistic before/after agent-session benchmarking."
+}

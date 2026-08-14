@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "defaults": {
+    "decision": "deny",
+    "untrustedWorkspace": "deny",
+    "unlistedTool": "deny",
+    "concurrentMutation": "deny",
+    "recursiveDelegation": "deny"
+  },
+  "precedence": ["deny", "approval", "allow"],
+  "rules": [
+    {
+      "id": "allow-read-only",
+      "decision": "allow",
+      "kind": "operation",
+      "values": ["read_file", "list_files", "search_text", "git_status", "git_diff"]
+    },
+    {
+      "id": "approval-write",
+      "decision": "approval",
+      "kind": "operation",
+      "values": ["create_file", "edit_file", "overwrite_file", "move_path", "delete_path", "install_dependencies"]
+    },
+    {
+      "id": "approval-network",
+      "decision": "approval",
+      "kind": "operation",
+      "values": ["network_request", "package_download"]
+    },
+    {
+      "id": "approval-external-mutation",
+      "decision": "approval",
+      "kind": "operation",
+      "values": ["git_commit", "git_push", "create_pull_request", "deploy", "database_migration", "production_data_change", "infrastructure_change"]
+    },
+    {
+      "id": "approval-protected-path",
+      "decision": "approval",
+      "kind": "path",
+      "values": [".git/**", "node_modules/**", "dist/**", "build/**"]
+    },
+    {
+      "id": "deny-secret-path",
+      "decision": "deny",
+      "kind": "path",
+      "values": [".env", ".env.*", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/*.p12", "**/*.pfx"]
+    },
+    {
+      "id": "deny-secret-content",
+      "decision": "deny",
+      "kind": "content-category",
+      "values": ["credentials", "access-token", "private-key", "session-secret"]
+    },
+    {
+      "id": "approval-destructive-command",
+      "decision": "approval",
+      "kind": "command-prefix",
+      "values": ["rm -rf", "Remove-Item -Recurse", "DROP DATABASE", "DROP TABLE", "TRUNCATE TABLE", "git reset --hard", "git clean -fd"]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "optInEnvironment": "HARNESS_TRUST_MODE",
+  "trustedValue": "trusted",
+  "hooks": [
+    { "event": "session-start", "command": "node .agents/hooks/session-start.mjs" },
+    { "event": "session-end", "command": "node .agents/hooks/session-end.mjs" }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-14T09:48:19.939Z",
+  "sanitized": true,
+  "summary": {
+    "total": 8,
+    "passed": 8,
+    "failed": 0
+  },
+  "scenarios": [
+    {
+      "id": "state-valid",
+      "status": "pass",
+      "durationMs": 6,
+      "evidence": "current feature state accepted"
+    },
+    {
+      "id": "state-invalid",
+      "status": "pass",
+      "durationMs": 12,
+      "evidence": "known duplicate state rejected"
+    },
+    {
+      "id": "lifecycle-restart",
+      "status": "pass",
+      "durationMs": 9,
+      "evidence": "restart contracts agree"
+    },
+    {
+      "id": "policy-deny",
+      "status": "pass",
+      "durationMs": 2,
+      "evidence": "policy valid and nested environment path denied"
+    },
+    {
+      "id": "secret-scan",
+      "status": "pass",
+      "durationMs": 1851,
+      "evidence": "tracked secret scan has no findings"
+    },
+    {
+      "id": "cleanup-read-only",
+      "status": "pass",
+      "durationMs": 229,
+      "evidence": "cleanup inventory reported without errors"
+    },
+    {
+      "id": "bounded-agent-assets",
+      "status": "pass",
+      "durationMs": 2,
+      "evidence": "context, memory, and coordination contracts present"
+    },
+    {
+      "id": "workflow-gates",
+      "status": "pass",
+      "durationMs": 2,
+      "evidence": "verification and safe deployment contract are present"
+    }
+  ]
+}

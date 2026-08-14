@@ -1,0 +1,33 @@
+name: Verify
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Required quality and security gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout immutable revision
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 20 for harness checks
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+
+      - name: Scan tracked files for committed secrets
+        run: node scripts/harness/secret-scan.mjs
+
+      - name: Run canonical verification
+        run: bash ./init.sh
