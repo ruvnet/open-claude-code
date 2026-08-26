@@ -17,6 +17,8 @@ export const ENV_SCHEMA = {
     OPENAI_BASE_URL: { type: 'string', default: 'https://api.openai.com/v1', description: 'OpenAI-compatible base URL' },
     GOOGLE_API_KEY: { type: 'string', description: 'Google AI API key' },
     GEMINI_API_KEY: { type: 'string', description: 'Alias for GOOGLE_API_KEY' },
+    DEEPSEEK_API_KEY: { type: 'string', description: 'DeepSeek API key' },
+    DEEPSEEK_BASE_URL: { type: 'string', default: 'https://api.deepseek.com', description: 'DeepSeek API base URL' },
 
     // Model Configuration
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: { type: 'number', default: 16384, description: 'Max output tokens' },
