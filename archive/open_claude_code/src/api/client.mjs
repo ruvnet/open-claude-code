@@ -10,18 +10,15 @@ import fetch from 'node-fetch';
  * Sends a request to Claude AI and handles the response
  */
 export async function sendRequest(messages, options = {}) {
-  // Check if API key is available and validate its format
-  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
+  // Check if API key is available
+  const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error('ANTHROPIC_API_KEY not set. Please add it to your .env file.');
   }
-  if (!apiKey.startsWith('sk-')) {
-    throw new Error('ANTHROPIC_API_KEY format is invalid. Please check your configuration.');
-  }
-
+  
   try {
     // For development, return a mock response
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'development' || !apiKey.startsWith('sk-')) {
       return mockResponse(messages);
     }
     

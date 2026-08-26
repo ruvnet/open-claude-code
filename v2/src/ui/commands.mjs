@@ -9,6 +9,7 @@ import { SessionManager } from '../core/session.mjs';
 import { CheckpointManager } from '../core/checkpoints.mjs';
 import { PromptCache } from '../core/cache.mjs';
 import { readEnv, listEnvVars } from '../config/env.mjs';
+import { readApiKey } from '../core/providers.mjs';
 import * as telemetry from '../telemetry/index.mjs';
 import { OutcomeStore } from '../optimize/store.mjs';
 
@@ -97,8 +98,9 @@ export const COMMANDS = {
         description: 'Check system health and configuration',
         handler(args, state) {
             const checks = [];
+            const anthropicKey = readApiKey('ANTHROPIC_API_KEY');
             checks.push(`Node.js: ${process.version}`);
-            checks.push(`ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'set' : 'NOT SET'}`);
+            checks.push(`ANTHROPIC_API_KEY: ${anthropicKey ? 'set' : 'NOT SET'}`);
             checks.push(`Model: ${state.model || 'default'}`);
             checks.push(`Tools: ${state.tools?.list?.()?.length || 0}`);
             checks.push(`Messages: ${state.messages.length}`);
@@ -107,7 +109,7 @@ export const COMMANDS = {
 
             // Check API connectivity
             let apiStatus = 'unchecked';
-            if (process.env.ANTHROPIC_API_KEY) {
+            if (anthropicKey) {
                 apiStatus = 'key present';
             }
             checks.push(`API: ${apiStatus}`);
@@ -215,8 +217,9 @@ export const COMMANDS = {
     '/login': {
         description: 'Set API key',
         handler(args) {
-            if (args) {
-                process.env.ANTHROPIC_API_KEY = args;
+            const key = (args || '').trim();
+            if (key) {
+                process.env.ANTHROPIC_API_KEY = key;
                 return 'API key set.';
             }
             return 'Usage: /login <api-key>';

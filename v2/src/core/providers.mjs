@@ -205,6 +205,24 @@ export function listProviders() {
 }
 
 /**
+ * Read an API key from the environment, in order of preference.
+ *
+ * Surrounding whitespace is trimmed — keys routinely arrive from .env files or
+ * command substitution with a trailing newline — and a whitespace-only value is
+ * treated as unset, so the next name is tried. No format validation: the
+ * provider is what authenticates the key.
+ * @param {...string} envKeys - env var names to try, most preferred first
+ * @returns {string} the trimmed key, or '' if none is configured
+ */
+export function readApiKey(...envKeys) {
+    for (const envKey of envKeys) {
+        const value = (process.env[envKey] || '').trim();
+        if (value) return value;
+    }
+    return '';
+}
+
+/**
  * Check which providers have API keys configured.
  * @returns {Array<{ id: string, name: string, configured: boolean }>}
  */
@@ -212,7 +230,7 @@ export function checkProviderKeys() {
     return Object.entries(PROVIDERS).map(([key, p]) => ({
         id: key,
         name: p.name,
-        configured: !!(process.env[p.envKey] || (p.altEnvKey && process.env[p.altEnvKey])),
+        configured: !!readApiKey(p.envKey, ...(p.altEnvKey ? [p.altEnvKey] : [])),
     }));
 }
 

@@ -5,6 +5,7 @@
 import { streamResponse, accumulateStream } from './streaming.mjs';
 import { ContextManager } from './context-manager.mjs';
 import { buildSystemPrompt } from './system-prompt.mjs';
+import { readApiKey } from './providers.mjs';
 
 /** Maximum number of consecutive tool-use continuation turns before aborting. */
 const MAX_TOOL_RECURSION_DEPTH = 50;
@@ -279,8 +280,8 @@ async function callApiStreaming(provider, model, state, toolDefs, settings) {
 }
 
 async function callAnthropic(model, state, toolDefs, settings, stream) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+    const apiKey = readApiKey('ANTHROPIC_API_KEY');
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set. Export it in your environment before running.');
 
     const body = {
         model,
@@ -331,8 +332,8 @@ async function callAnthropic(model, state, toolDefs, settings, stream) {
 }
 
 async function callOpenAI(model, state, toolDefs, settings, stream) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error('OPENAI_API_KEY not set');
+    const apiKey = readApiKey('OPENAI_API_KEY');
+    if (!apiKey) throw new Error('OPENAI_API_KEY is not set. Export it in your environment before running.');
 
     const messages = [];
     if (state.systemPrompt) {
@@ -385,8 +386,8 @@ async function callOpenAI(model, state, toolDefs, settings, stream) {
 }
 
 async function callGoogle(model, state, toolDefs, settings, stream) {
-    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GOOGLE_API_KEY or GEMINI_API_KEY not set');
+    const apiKey = readApiKey('GOOGLE_API_KEY', 'GEMINI_API_KEY');
+    if (!apiKey) throw new Error('GOOGLE_API_KEY or GEMINI_API_KEY is not set. Export one in your environment before running.');
 
     const contents = [];
     for (const msg of state.messages) {

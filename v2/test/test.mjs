@@ -2078,6 +2078,96 @@ section('MetaHarness: default behavior unchanged when disabled');
     assert(result.response.includes('OFF'), '/optimize reports OFF without a live cascade');
 }
 
+section('API key configuration');
+{
+    const { readApiKey } = await import('../src/core/providers.mjs');
+
+    // Save-and-restore, not delete: a developer running the suite with a real
+    // key exported must get it back.
+    const savedKeys = {
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+        GOOGLE_API_KEY: process.env.GOOGLE_API_KEY,
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    };
+    const keyState = { messages: [], turnCount: 0 };
+
+    try {
+        // Unset, empty, and whitespace-only values all read as unconfigured
+        delete process.env.ANTHROPIC_API_KEY;
+        assertEqual(readApiKey('ANTHROPIC_API_KEY'), '', 'Unset key reads as empty');
+        process.env.ANTHROPIC_API_KEY = '';
+        assertEqual(readApiKey('ANTHROPIC_API_KEY'), '', 'Empty key reads as empty');
+        process.env.ANTHROPIC_API_KEY = '   ';
+        assertEqual(readApiKey('ANTHROPIC_API_KEY'), '', 'Whitespace-only key reads as empty');
+
+        // Surrounding whitespace is stripped instead of being sent in a header
+        process.env.ANTHROPIC_API_KEY = '  sk-test-key\n';
+        assertEqual(readApiKey('ANTHROPIC_API_KEY'), 'sk-test-key', 'Key is trimmed');
+
+        // No local format validation — the provider authenticates the key
+        process.env.ANTHROPIC_API_KEY = 'not-a-real-key';
+        assertEqual(readApiKey('ANTHROPIC_API_KEY'), 'not-a-real-key', 'Arbitrary non-empty key is accepted locally');
+
+        // A blank primary name falls through to the alternate name
+        process.env.GOOGLE_API_KEY = '  ';
+        process.env.GEMINI_API_KEY = 'gemini-key';
+        assertEqual(readApiKey('GOOGLE_API_KEY', 'GEMINI_API_KEY'), 'gemini-key', 'Blank GOOGLE_API_KEY falls back to GEMINI_API_KEY');
+        delete process.env.GOOGLE_API_KEY;
+        delete process.env.GEMINI_API_KEY;
+
+        // Diagnostics must not report a blank key as configured
+        process.env.ANTHROPIC_API_KEY = '   ';
+        assertEqual(checkProviderKeys().find(p => p.id === 'anthropic').configured, false, 'checkProviderKeys ignores blank key');
+        assertIncludes(executeCommand('/doctor', keyState).response, 'ANTHROPIC_API_KEY: NOT SET', '/doctor reports blank key as NOT SET');
+
+        process.env.ANTHROPIC_API_KEY = 'sk-configured';
+        assertEqual(checkProviderKeys().find(p => p.id === 'anthropic').configured, true, 'checkProviderKeys sees a configured key');
+        assertIncludes(executeCommand('/doctor', keyState).response, 'ANTHROPIC_API_KEY: set', '/doctor reports configured key as set');
+
+        // /login trims its argument and refuses a blank one
+        delete process.env.ANTHROPIC_API_KEY;
+        assertIncludes(COMMANDS['/login'].handler('   ', keyState), 'Usage: /login', '/login rejects a whitespace-only key');
+        assertEqual(process.env.ANTHROPIC_API_KEY, undefined, '/login does not store a blank key');
+        executeCommand('/login   sk-login-key  ', keyState);
+        assertEqual(process.env.ANTHROPIC_API_KEY, 'sk-login-key', '/login stores the trimmed key');
+
+        // Regression: missing or blank configuration surfaces as an error event
+        // instead of reaching the network. run() catches the throw from
+        // callAnthropic, so no request is ever made.
+        const firstErrorEvent = async () => {
+            const loop = createAgentLoop({
+                model: 'claude-sonnet-4-6',
+                tools: createToolRegistry(),
+                permissions: createPermissionChecker({ defaultMode: 'bypassPermissions' }),
+                settings: {},
+                hooks: null,
+            });
+            for await (const event of loop.run('hello')) {
+                if (event.type === 'error') return event;
+            }
+            return null;
+        };
+
+        delete process.env.ANTHROPIC_API_KEY;
+        const missingKeyEvent = await firstErrorEvent();
+        assert(missingKeyEvent !== null, 'Missing key yields an error event');
+        assertIncludes(missingKeyEvent?.message, 'ANTHROPIC_API_KEY', 'Missing key error names the env var');
+
+        process.env.ANTHROPIC_API_KEY = '   ';
+        const blankKeyEvent = await firstErrorEvent();
+        assert(blankKeyEvent !== null, 'Blank key yields an error event');
+        assertIncludes(blankKeyEvent?.message, 'ANTHROPIC_API_KEY', 'Blank key error names the env var');
+    } catch (e) {
+        assert(false, `API key configuration tests threw: ${e.message}`);
+    } finally {
+        for (const [k, v] of Object.entries(savedKeys)) {
+            if (v === undefined) delete process.env[k];
+            else process.env[k] = v;
+        }
+    }
+}
+
 // ---------- Summary ----------
 
 console.log('\n========================================');
