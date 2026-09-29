@@ -297,7 +297,8 @@ async function callAnthropic(model, state, toolDefs, settings, stream) {
         body.thinking = { type: 'enabled', budget_tokens: settings.thinkingBudget || 10000 };
     }
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const baseUrl = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
+    const res = await fetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
