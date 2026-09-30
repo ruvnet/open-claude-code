@@ -25,6 +25,7 @@
  */
 
 import fs from 'fs';
+import { validateDiff } from './validate-decompile-diff.mjs';
 import path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -291,6 +292,7 @@ async function main() {
   }
 
   const diff = JSON.parse(diffData);
+  validateDiff(diff, process.env.NEW_VERSION || diff.versions?.current, process.env.PREVIOUS_VERSION || diff.versions?.previous);
   if (diff.error) {
     console.error('Decompilation failed. Cannot auto-update.');
     process.exit(1);

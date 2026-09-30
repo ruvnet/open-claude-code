@@ -21,8 +21,12 @@ permissions:
   contents: write
   issues: write
 
+concurrency:
+  group: nightly-verified-release
+  cancel-in-progress: false
+
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'  # current upstream source uses explicit resource management (using)
 
 jobs:
   # ──────────────────────────────────────────────────────────────────
@@ -64,6 +68,7 @@ jobs:
             echo "::error::Failed to check upstream version"
             echo "new_version=${PREVIOUS_VERSION}" >> "$GITHUB_OUTPUT"
             echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 2
           fi
 
       - name: Override if force release
@@ -94,6 +99,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -105,6 +112,9 @@ jobs:
       - name: Install dependencies
         working-directory: v2
         run: npm ci
+
+      - name: Decompiler regression tests
+        run: node --test scripts/test/*.test.mjs
 
       # Gate 1: Test suite
       - name: Run test suite
@@ -276,8 +286,7 @@ jobs:
     needs: [detect, verify]
     if: |
       always() &&
-      needs.verify.result == 'success' &&
-      github.event.inputs.skip_ai_analysis != 'true'
+      needs.verify.result == 'success'
     outputs:
       discovery_summary: ${{ steps.combine.outputs.summary }}
       analysis_available: ${{ steps.combine.outputs.available }}
@@ -296,42 +305,20 @@ jobs:
       # ── Step 1: Full decompilation of both versions ──
       - name: Run rudevolution decompiler
         id: decompile
+        env:
+          NEW: ${{ needs.detect.outputs.new_version }}
+          PREV: ${{ needs.detect.outputs.previous_version }}
         run: |
-          NEW="${{ needs.detect.outputs.new_version }}"
-          PREV="${{ needs.detect.outputs.previous_version }}"
-
+          set -euo pipefail
           echo "::group::Decompiling @anthropic-ai/claude-code v${PREV} and v${NEW}"
-
-          set +e
-          DIFF_JSON="$(node scripts/decompile-and-diff.mjs "${NEW}" "${PREV}" 2>/tmp/decompile-stderr.txt)"
-          DECOMPILE_EXIT=$?
-          set -e
-
-          cat /tmp/decompile-stderr.txt >&2 || true
-
-          if [ "${DECOMPILE_EXIT}" -eq 0 ] && [ -n "${DIFF_JSON}" ]; then
-            echo "${DIFF_JSON}" > /tmp/decompile-diff.json
-            echo "available=true" >> "$GITHUB_OUTPUT"
-
-            # Extract summary stats for release notes
-            ADDED=$(echo "${DIFF_JSON}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('summary',{}).get('addedModuleCount',0))" 2>/dev/null || echo 0)
-            REMOVED=$(echo "${DIFF_JSON}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('summary',{}).get('removedModuleCount',0))" 2>/dev/null || echo 0)
-            CHANGED=$(echo "${DIFF_JSON}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('summary',{}).get('changedModuleCount',0))" 2>/dev/null || echo 0)
-            NEW_FUNCS=$(echo "${DIFF_JSON}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('summary',{}).get('newFunctions',0))" 2>/dev/null || echo 0)
-            PREV_FUNCS=$(echo "${DIFF_JSON}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('summary',{}).get('prevFunctions',0))" 2>/dev/null || echo 0)
-            NEW_EXPORTS=$(echo "${DIFF_JSON}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('summary',{}).get('addedExportCount',0))" 2>/dev/null || echo 0)
-
-            echo "::notice::Decompilation diff: +${ADDED} modules, -${REMOVED} modules, ~${CHANGED} changed, ${NEW_FUNCS} functions (was ${PREV_FUNCS}), +${NEW_EXPORTS} new exports"
-
-            # Generate markdown summary from diff JSON
-            python3 scripts/format-diff-summary.py /tmp/decompile-diff.json "${PREV}" "${NEW}" > /tmp/decompile-summary.md 2>/dev/null || echo "> Decompile summary generation failed" > /tmp/decompile-summary.md
-
-          else
-            echo "::warning::Decompilation failed or returned empty"
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "> Decompilation was not available for this release." > /tmp/decompile-summary.md
-          fi
-
+          # Either failed version, unsupported packaging, malformed output or
+          # invalid witness blocks this job and every downstream consumer.
+          node scripts/decompile-and-diff.mjs "${NEW}" "${PREV}" \
+            --output-dir /tmp/decompile-output > /tmp/decompile-diff.pending.json
+          node scripts/validate-decompile-diff.mjs /tmp/decompile-diff.pending.json "${NEW}" "${PREV}"
+          mv /tmp/decompile-diff.pending.json /tmp/decompile-diff.json
+          python3 scripts/format-diff-summary.py /tmp/decompile-diff.json "${PREV}" "${NEW}" > /tmp/decompile-summary.md
+          echo "available=true" >> "$GITHUB_OUTPUT"
           echo "::endgroup::"
 
       # ── Step 2: AI-powered analysis (uses decompile data) ──
@@ -347,13 +334,14 @@ jobs:
         id: ai_analysis
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SKIP_AI_ANALYSIS: ${{ github.event.inputs.skip_ai_analysis }}
         run: |
           chmod +x scripts/analyze-discoveries.sh
 
-          if [ -z "${ANTHROPIC_API_KEY}" ]; then
-            echo "::notice::ANTHROPIC_API_KEY not set — skipping AI analysis"
+          if [ "${SKIP_AI_ANALYSIS}" = "true" ] || [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "::notice::AI analysis skipped by request or missing API key"
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "> AI analysis skipped (no API key)." > /tmp/ai-summary.md
+            echo "> AI analysis skipped (requested or no API key)." > /tmp/ai-summary.md
             exit 0
           fi
 
@@ -382,7 +370,7 @@ jobs:
           {
             echo "## Discovery Report"
             echo ""
-            cat /tmp/decompile-summary.md 2>/dev/null || true
+            cat /tmp/decompile-summary.md
             echo ""
             echo "---"
             echo ""
@@ -402,6 +390,9 @@ jobs:
           path: |
             /tmp/discovery-summary.md
             /tmp/decompile-diff.json
+            /tmp/decompile-output/**/manifest.json
+            /tmp/decompile-output/**/witness.json
+          if-no-files-found: error
           retention-days: 90
 
   # ──────────────────────────────────────────────────────────────────
@@ -414,6 +405,8 @@ jobs:
     if: |
       always() &&
       needs.verify.result == 'success' &&
+      needs.analyze.result == 'success' &&
+      needs.analyze.outputs.diff_available == 'true' &&
       (needs.detect.outputs.should_release == 'true' || github.event.inputs.force_release == 'true')
     outputs:
       updates_applied: ${{ steps.update.outputs.applied }}
@@ -439,14 +432,12 @@ jobs:
         with:
           name: discovery-summary
           path: /tmp
-        continue-on-error: true
 
-      - name: Run decompiler if diff missing
-        if: ${{ !needs.analyze.outputs.diff_available }}
-        run: |
-          NEW="${{ needs.detect.outputs.new_version }}"
-          PREV="${{ needs.detect.outputs.previous_version }}"
-          node scripts/decompile-and-diff.mjs "${NEW}" "${PREV}" > /tmp/decompile-diff.json 2>/dev/null || true
+      - name: Validate decompile diff before auto-update
+        env:
+          NEW: ${{ needs.detect.outputs.new_version }}
+          PREV: ${{ needs.detect.outputs.previous_version }}
+        run: node scripts/validate-decompile-diff.mjs /tmp/decompile-diff.json "${NEW}" "${PREV}"
 
       - name: Auto-update capabilities
         id: update
@@ -454,20 +445,19 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PREVIOUS_VERSION: ${{ needs.detect.outputs.previous_version }}
           NEW_VERSION: ${{ needs.detect.outputs.new_version }}
+          SKIP_AI_ANALYSIS: ${{ github.event.inputs.skip_ai_analysis }}
         run: |
-          echo "API key length: ${#ANTHROPIC_API_KEY}"
           echo "Diff file exists: $(test -f /tmp/decompile-diff.json && echo yes || echo no)"
 
-          if [ "${#ANTHROPIC_API_KEY}" -lt 10 ]; then
-            echo "::notice::No API key — skipping auto-update"
+          if [ "${SKIP_AI_ANALYSIS}" = "true" ] || [ "${#ANTHROPIC_API_KEY}" -lt 10 ]; then
+            echo "::notice::AI updates skipped by request or missing API key"
             echo "applied=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if [ ! -f /tmp/decompile-diff.json ]; then
-            echo "::notice::No decompile diff — skipping auto-update"
-            echo "applied=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::Validated decompile diff is missing"
+            exit 1
           fi
 
           set +e
@@ -569,6 +559,9 @@ jobs:
     if: |
       always() &&
       needs.verify.result == 'success' &&
+      needs.analyze.result == 'success' &&
+      needs.analyze.outputs.diff_available == 'true' &&
+      needs.autoupdate.result == 'success' &&
       (needs.detect.outputs.should_release == 'true' || github.event.inputs.force_release == 'true')
     steps:
       - name: Checkout repository
@@ -576,13 +569,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Download discovery summary
-        if: needs.analyze.outputs.analysis_available == 'true'
         uses: actions/download-artifact@v4
         with:
           name: discovery-summary
           path: /tmp
-        continue-on-error: true
+
+      - name: Validate decompile evidence before release
+        env:
+          NEW: ${{ needs.detect.outputs.new_version }}
+          PREV: ${{ needs.detect.outputs.previous_version }}
+        run: node scripts/validate-decompile-diff.mjs /tmp/decompile-diff.json "${NEW}" "${PREV}"
 
       - name: Determine release tag
         id: tag
@@ -637,15 +639,6 @@ jobs:
           echo "${NOTES}" > /tmp/release-notes.md
           echo "::notice::Release notes generated"
 
-      - name: Update last-known version
-        run: |
-          echo "${{ needs.detect.outputs.new_version }}" > scripts/last-known-claude-version.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add scripts/last-known-claude-version.txt
-          git diff --cached --quiet || git commit -m "chore: update last-known Claude Code version to ${{ needs.detect.outputs.new_version }}"
-          git push || echo "::warning::Could not push version update"
-
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -655,9 +648,21 @@ jobs:
           gh release create "${TAG}" \
             --title "Nightly Verified Build ${TAG}" \
             --notes-file /tmp/release-notes.md \
-            --prerelease
+            --prerelease \
+            --target "${GITHUB_SHA}"
 
           echo "::notice::Release published: ${TAG}"
+
+      - name: Update last-known version
+        run: |
+          echo "${{ needs.detect.outputs.new_version }}" > scripts/last-known-claude-version.txt
+          echo "${{ needs.detect.outputs.new_version }}" > scripts/last-decompiled-claude-version.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add scripts/last-known-claude-version.txt scripts/last-decompiled-claude-version.txt
+          git diff --cached --quiet || git commit -m "chore: update last-known Claude Code version to ${{ needs.detect.outputs.new_version }}"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
+
 
   # ──────────────────────────────────────────────────────────────────
   # Failure handler — open issue for investigation
@@ -665,7 +670,7 @@ jobs:
   on-failure:
     name: 'Handle Failure'
     runs-on: ubuntu-latest
-    needs: [detect, verify, release]
+    needs: [detect, verify, analyze, autoupdate, release]
     if: failure()
     steps:
       - name: Checkout repository
@@ -710,6 +715,7 @@ jobs:
           - [ ] Check security audit
           - [ ] Check lint/syntax errors
           - [ ] Check smoke test
+          - [ ] Check both upstream decompilations, source validation and witnesses
           - [ ] Review workflow logs
 
           ### Quick Links

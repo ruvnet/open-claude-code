@@ -67,16 +67,17 @@ ${PREV_DEPS}
 # 2. Fresh decompile diff (from decompile-and-diff.mjs if run in pipeline)
 DIFF_FILE="/tmp/decompile-diff.json"
 if [ -f "${DIFF_FILE}" ]; then
-  echo "Including structural diff from decompilation..." >&2
+  node "${SCRIPT_DIR}/validate-decompile-diff.mjs" "${DIFF_FILE}" "${NEW_VERSION}" "${PREVIOUS_VERSION}" >&2
+  echo "Including validated source-category diff..." >&2
   CONTEXT="${CONTEXT}
-=== STRUCTURAL DIFF (full rudevolution decompilation) ===
+=== SOURCE CATEGORY DIFF (ruDevolution Node classifier; lexical counts are estimates) ===
 $(python3 -c "
 import json
 d=json.load(open('${DIFF_FILE}'))
 s=d.get('summary',{})
-print(f'Modules: {s.get(\"prevModules\",\"?\")} -> {s.get(\"newModules\",\"?\")}')
-print(f'Functions: {s.get(\"prevFunctions\",\"?\")} -> {s.get(\"newFunctions\",\"?\")}')
-print(f'Classes: {s.get(\"prevClasses\",\"?\")} -> {s.get(\"newClasses\",\"?\")}')
+print(f'Classified categories: {s.get(\"prevModules\",\"?\")} -> {s.get(\"newModules\",\"?\")}')
+print(f'Function patterns (estimate): {s.get(\"prevFunctions\",\"?\")} -> {s.get(\"newFunctions\",\"?\")}')
+print(f'Class patterns (estimate): {s.get(\"prevClasses\",\"?\")} -> {s.get(\"newClasses\",\"?\")}')
 print(f'Added modules ({s.get(\"addedModuleCount\",0)}):')
 for m in d.get('addedModules',[])[:15]:
     print(f'  + {m[\"name\"]} ({m.get(\"functions\",0)} funcs, {m.get(\"classes\",0)} classes)')
@@ -86,12 +87,7 @@ for m in d.get('removedModules',[])[:10]:
 print(f'Changed modules ({s.get(\"changedModuleCount\",0)}):')
 for m in d.get('changedModules',[])[:15]:
     print(f'  ~ {m[\"name\"]}: size {m.get(\"sizeDelta\",0):+d} bytes, funcs {m.get(\"funcDelta\",0):+d}')
-print(f'New exports ({s.get(\"addedExportCount\",0)}):')
-for e in d.get('addedExports',[])[:20]:
-    print(f'  + {e}')
-print(f'Removed exports ({s.get(\"removedExportCount\",0)}):')
-for e in d.get('removedExports',[])[:20]:
-    print(f'  - {e}')
+print('Export-symbol recovery is not performed by this classifier.')
 " 2>/dev/null || echo "(diff parse failed)")
 "
 fi

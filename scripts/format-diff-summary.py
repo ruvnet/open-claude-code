@@ -8,10 +8,12 @@ def main():
     try:
         d = json.load(open(diff_file))
     except Exception as e:
-        print(f"> Decompilation diff unavailable: {e}")
-        return
+        print(f"Decompilation diff unavailable: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    s = d.get("summary", {})
+    if d.get("status") != "complete" or d.get("schemaVersion") != 1:
+        raise ValueError("A complete validated decompilation diff is required")
+    s = d["summary"]
     prev_ver = sys.argv[2] if len(sys.argv) > 2 else "prev"
     new_ver = sys.argv[3] if len(sys.argv) > 3 else "new"
 
@@ -29,20 +31,32 @@ def main():
         except (ValueError, TypeError):
             return "?"
 
-    print("### Structural Diff (rudevolution decompilation)")
+    print("### Source Diff (ruDevolution classification)")
     print()
     print(f"| Metric | v{prev_ver} | v{new_ver} | Delta |")
     print("|--------|---------|---------|-------|")
-    print(f"| Modules | {pm} | {nm} | {delta(pm, nm)} |")
-    print(f"| Functions | {pf} | {nf} | {delta(pf, nf)} |")
-    print(f"| Classes | {pc} | {nc} | {delta(pc, nc)} |")
-    print(f"| New exports | - | - | +{s.get('addedExportCount', 0)} |")
-    print(f"| Removed exports | - | - | -{s.get('removedExportCount', 0)} |")
+    print(f"| Classified categories | {pm} | {nm} | {delta(pm, nm)} |")
+    print(f"| Function patterns (estimate) | {pf} | {nf} | {delta(pf, nf)} |")
+    print(f"| Class patterns (estimate) | {pc} | {nc} | {delta(pc, nc)} |")
+    for side in ("previous", "current"):
+        proof = d["evidence"][side]
+        print(f"<!-- {side}: {proof['sourceModules']} source modules, {proof['sourceBytes']} bytes -->")
+    print()
+    print("Shipped JavaScript was recovered and syntax-checked without executing it. "
+          "Every recovered executable JS module passed through ruDevolution's Node keyword classifier; "
+          "all source and classified-content witness hashes were checked. "
+          "Categories are source fragments, not independently runnable modules. "
+          "Lexical counts are estimates, not recovered original symbol identities or proof of semantic equivalence.")
+    for side in ("previous", "current"):
+        p = d["evidence"][side]
+        print(f"- v{p['version']}: {p['sourceModules']} JavaScript modules, "
+              f"{p['sourceBytes']:,} source bytes, {p['witness']['chains']} verified SHA-256 witness chains "
+              f"({p['packaging']}); {p['assetCount']} non-executable assets inventoried separately")
     print()
 
     added = d.get("addedModules", [])
     if added:
-        print("#### New Modules")
+        print("#### New Categories")
         for m in added[:15]:
             print(f"- **{m['name']}** ({m.get('functions', 0)} functions, {m.get('classes', 0)} classes)")
         if len(added) > 15:
@@ -51,14 +65,14 @@ def main():
 
     removed = d.get("removedModules", [])
     if removed:
-        print("#### Removed Modules")
+        print("#### Removed Categories")
         for m in removed[:10]:
             print(f"- ~~{m['name']}~~ ({m.get('functions', 0)} functions)")
         print()
 
     changed = d.get("changedModules", [])
     if changed:
-        print("#### Significantly Changed Modules")
+        print("#### Changed Categories (content hashes)")
         for m in sorted(changed, key=lambda x: abs(x.get("sizeDelta", 0)), reverse=True)[:15]:
             sd = m.get("sizeDelta", 0)
             fd = m.get("funcDelta", 0)

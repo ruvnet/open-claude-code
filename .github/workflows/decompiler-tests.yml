@@ -1,0 +1,32 @@
+name: Decompiler regression tests
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/nightly.yml'
+      - '.github/workflows/decompiler-tests.yml'
+      - 'rudevolution'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/nightly.yml'
+      - '.github/workflows/decompiler-tests.yml'
+      - 'rudevolution'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test scripts/test/*.test.mjs
+      - run: |
+          for file in scripts/*.mjs; do node --check "$file"; done
+          bash -n scripts/check-claude-release.sh
+          python3 -m py_compile scripts/format-diff-summary.py

@@ -1,176 +1,118 @@
 #!/usr/bin/env node
-/**
- * decompile-and-diff.mjs — Full rudevolution decompilation + structural diff
- *
- * Runs the complete decompiler pipeline on two Claude Code versions:
- * 1. Fetches both versions from npm
- * 2. Runs MinCut graph partitioning + name inference
- * 3. Generates witness chains (SHA3-256)
- * 4. Produces a structural diff: new/removed/changed modules, functions, exports
- *
- * Usage:
- *   node scripts/decompile-and-diff.mjs <new-version> <previous-version>
- *
- * Output: JSON to stdout with diff summary
+/** Recover shipped JavaScript, run ruDevolution's Node keyword classifier on
+ * every source module, verify witnesses, and compare category content hashes.
+ * This does not recover original identifiers or prove semantic equivalence.
+ * Usage: node scripts/decompile-and-diff.mjs NEW PREVIOUS [--output-dir DIR]
  */
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
+import { assertVersion, fetchUpstreamSources, sha256, PACKAGE } from './upstream-source.mjs';
 
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { createRequire } from 'module';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-
-// Load rudevolution decompiler
-const decompilerPath = path.join(__dirname, '..', 'rudevolution', 'npm', 'src', 'decompiler');
-
-// Patch: fix scoped package URL encoding in npm-fetch before loading decompiler
-const npmFetchPath = path.join(decompilerPath, 'npm-fetch.js');
-const npmFetchSrc = require('fs').readFileSync(npmFetchPath, 'utf8');
-if (npmFetchSrc.includes("replace('%40', '@')") && !npmFetchSrc.includes("replace('%2F', '/')")) {
-  const patched = npmFetchSrc.replace(
-    /encodeURIComponent\(packageName\)\.replace\('%40', '@'\)/g,
-    "encodeURIComponent(packageName).replace('%40', '@').replace('%2F', '/')"
-  );
-  require('fs').writeFileSync(npmFetchPath, patched);
-  console.error('Patched npm-fetch.js: fixed scoped package URL encoding');
+function engine() {
+  const base = path.join(dirname, '..', 'rudevolution', 'npm', 'src', 'decompiler');
+  return { ...require(base), ...require(path.join(base, 'metrics.js')) };
 }
-
-const { decompilePackage } = require(decompilerPath);
-
-const PACKAGE = '@anthropic-ai/claude-code';
-const newVersion = process.argv[2];
-const prevVersion = process.argv[3];
-
-if (!newVersion || !prevVersion) {
-  console.error('Usage: node decompile-and-diff.mjs <new-version> <previous-version>');
-  process.exit(2);
-}
-
-async function decompile(version) {
-  console.error(`Decompiling ${PACKAGE}@${version}...`);
-  const start = Date.now();
-  try {
-    const result = await decompilePackage(PACKAGE, version, {
-      format: 'json',
-      witness: true,
-      validate: true,
-    });
-    const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-    console.error(`  Done in ${elapsed}s — ${result.modules?.length || 0} modules, ${result.metrics?.totalDeclarations || '?'} declarations`);
-    return result;
-  } catch (err) {
-    console.error(`  Failed: ${err.message}`);
-    return null;
+export function validateDecompilation(result, source) {
+  const { verifyWitnessChain } = engine();
+  if (!result || !Array.isArray(result.modules) || !result.modules.length || result.modules.some(m => typeof m.name !== 'string' || !m.name || typeof m.content !== 'string' || !m.content.trim())) {
+    throw new Error('Empty or invalid ruDevolution output');
   }
+  const verified = verifyWitnessChain(result.witness, source);
+  if (!verified.valid || result.witness.module_hashes?.length !== result.modules.length) throw new Error('Invalid decompilation witness');
+  for (let i = 0; i < result.modules.length; i++) {
+    const actual = result.modules[i], claimed = result.witness.module_hashes[i];
+    if (actual.name !== claimed.name || sha256(actual.content) !== claimed.hash) throw new Error('Decompiled content does not match witness');
+  }
+  return verified;
 }
-
-function extractSignature(result) {
-  if (!result || !result.modules) return { modules: [], exports: [], functions: 0, classes: 0 };
-
-  const modules = result.modules.map(m => ({
-    name: m.name || m.id || 'unknown',
-    functions: m.functions?.length || 0,
-    classes: m.classes?.length || 0,
-    exports: m.exports || [],
-    size: m.source?.length || 0,
+export function extractSignature(result) {
+  if (!result?.modules?.length || !result.metrics?.source) throw new Error('Missing complete decompilation result');
+  const { computeMetrics } = engine();
+  const modules = result.modules.map(m => {
+    const metrics = computeMetrics(m.content);
+    return { name: m.name, functions: metrics.functions + metrics.arrowFunctions, classes: metrics.classes, size: Buffer.byteLength(m.content), hash: sha256(m.content) };
+  });
+  // ruDevolution's lexical counts are estimates, not AST symbol counts. Do not
+  // invent export names from its modules (which have content, not exports[]).
+  return { modules, functions: result.metrics.source.functions + result.metrics.source.arrowFunctions, classes: result.metrics.source.classes };
+}
+export function computeDiff(previous, current) {
+  const old = new Map(previous.modules.map(m => [m.name, m]));
+  const now = new Map(current.modules.map(m => [m.name, m]));
+  const addedModules = current.modules.filter(m => !old.has(m.name));
+  const removedModules = previous.modules.filter(m => !now.has(m.name));
+  const changedModules = current.modules.flatMap(m => {
+    const prev = old.get(m.name);
+    return prev && prev.hash !== m.hash ? [{ name: m.name, sizeDelta: m.size - prev.size, funcDelta: m.functions - prev.functions, classDelta: m.classes - prev.classes, previousSha256: prev.hash, currentSha256: m.hash }] : [];
+  });
+  return { summary: { prevModules: previous.modules.length, newModules: current.modules.length, prevFunctions: previous.functions, newFunctions: current.functions, prevClasses: previous.classes, newClasses: current.classes, addedModuleCount: addedModules.length, removedModuleCount: removedModules.length, changedModuleCount: changedModules.length }, addedModules, removedModules, changedModules };
+}
+export async function decompile(version, { loadSources = fetchUpstreamSources, outputDir } = {}) {
+  assertVersion(version);
+  if (Number(process.versions.node.split('.')[0]) < 24) throw new Error('Node.js 24 or newer is required to parse current upstream JavaScript (using declarations)');
+  console.error(`Recovering and decompiling ${PACKAGE}@${version}...`);
+  const recovered = await loadSources(version);
+  if (!recovered?.sources?.length || !recovered.provenance || !recovered.sources.some(m => m.entryPoint)) throw new Error('No complete recovered source graph');
+  const validation = JSON.parse(execFileSync(process.execPath, ['--experimental-vm-modules', '--no-warnings', path.join(dirname, 'validate-source.mjs')], {
+    input: JSON.stringify(recovered.sources), encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 180000,
   }));
-
-  const allExports = modules.flatMap(m => m.exports);
-  const totalFunctions = modules.reduce((s, m) => s + m.functions, 0);
-  const totalClasses = modules.reduce((s, m) => s + m.classes, 0);
-
-  return { modules, exports: allExports, functions: totalFunctions, classes: totalClasses };
-}
-
-function computeDiff(prevSig, newSig) {
-  const prevModNames = new Set(prevSig.modules.map(m => m.name));
-  const newModNames = new Set(newSig.modules.map(m => m.name));
-
-  const addedModules = newSig.modules.filter(m => !prevModNames.has(m.name));
-  const removedModules = prevSig.modules.filter(m => !newModNames.has(m.name));
-
-  const prevExports = new Set(prevSig.exports);
-  const newExports = new Set(newSig.exports);
-  const addedExports = [...newExports].filter(e => !prevExports.has(e));
-  const removedExports = [...prevExports].filter(e => !newExports.has(e));
-
-  // Size changes for shared modules
-  const changedModules = [];
-  for (const nm of newSig.modules) {
-    const pm = prevSig.modules.find(m => m.name === nm.name);
-    if (pm) {
-      const sizeDelta = nm.size - pm.size;
-      const funcDelta = nm.functions - pm.functions;
-      if (Math.abs(sizeDelta) > 100 || funcDelta !== 0) {
-        changedModules.push({
-          name: nm.name,
-          sizeDelta,
-          funcDelta,
-          classDelta: nm.classes - pm.classes,
-        });
-      }
+  if (validation.valid !== true || validation.modules !== recovered.sources.length) throw new Error('Source syntax validation incomplete');
+  const { decompileSource, computeModuleMetrics } = engine();
+  const categories = new Map(), witnesses = [], sourceMetrics = {};
+  const sourceManifest = [];
+  if (outputDir) await fs.mkdir(path.join(outputDir, 'recovered'), { recursive: true });
+  for (const [index, item] of recovered.sources.entries()) {
+    const result = decompileSource(item.source, { useRust: false, witness: true });
+    const verified = validateDecompilation(result, item.source);
+    for (const [key, value] of Object.entries(result.metrics.source)) sourceMetrics[key] = (sourceMetrics[key] || 0) + value;
+    for (const module of result.modules) {
+      if (!categories.has(module.name)) categories.set(module.name, []);
+      categories.get(module.name).push(module.content);
+    }
+    const sourceHash = sha256(item.source);
+    witnesses.push({ name: item.name, ...result.witness });
+    const record = { name: item.name, format: item.format, entryPoint: item.entryPoint, bytes: Buffer.byteLength(item.source), sourceSha256: sourceHash, embeddedSha256: item.embeddedSha256, decompiledModules: result.modules.length, witnessRoot: verified.root };
+    sourceManifest.push(record);
+    if (outputDir) {
+      // Only numeric generated names become paths; embedded names stay data.
+      await fs.writeFile(path.join(outputDir, 'recovered', `${String(index).padStart(5, '0')}.${item.format === 'module' ? 'mjs' : 'cjs'}`), item.source);
     }
   }
-
-  return {
-    summary: {
-      prevModules: prevSig.modules.length,
-      newModules: newSig.modules.length,
-      prevFunctions: prevSig.functions,
-      newFunctions: newSig.functions,
-      prevClasses: prevSig.classes,
-      newClasses: newSig.classes,
-      addedModuleCount: addedModules.length,
-      removedModuleCount: removedModules.length,
-      changedModuleCount: changedModules.length,
-      addedExportCount: addedExports.length,
-      removedExportCount: removedExports.length,
-    },
-    addedModules: addedModules.map(m => ({ name: m.name, functions: m.functions, classes: m.classes })),
-    removedModules: removedModules.map(m => ({ name: m.name, functions: m.functions })),
-    changedModules: changedModules.slice(0, 30),
-    addedExports: addedExports.slice(0, 50),
-    removedExports: removedExports.slice(0, 50),
-  };
-}
-
-async function main() {
-  console.error(`\n=== rudevolution Deep Decompilation Diff ===`);
-  console.error(`Previous: ${PACKAGE}@${prevVersion}`);
-  console.error(`Current:  ${PACKAGE}@${newVersion}\n`);
-
-  const [prevResult, newResult] = await Promise.all([
-    decompile(prevVersion),
-    decompile(newVersion),
-  ]);
-
-  if (!prevResult && !newResult) {
-    console.error('Both decompilations failed. Outputting empty diff.');
-    console.log(JSON.stringify({ error: 'decompilation_failed', summary: {} }));
-    process.exit(1);
+  const modules = [...categories].sort(([a], [b]) => a.localeCompare(b)).map(([name, fragments]) => ({ name, content: fragments.join('\n\n') }));
+  if (!modules.length) throw new Error('Decompilation produced no categories');
+  const metrics = { source: sourceMetrics, modules: computeModuleMetrics(modules), engine: 'rudevolution-node-keyword', method: 'lexical estimates; categories are classified source fragments, not independently runnable modules' };
+  const evidence = { version, ...recovered.provenance, entryPoint: recovered.entryPoint, sourceSyntaxValid: true, sourceModules: recovered.sources.length, processedSourceModules: sourceManifest.length, sourceBytes: sourceMetrics.sizeBytes, sourceManifestSha256: sha256(JSON.stringify(sourceManifest)), assetCount: recovered.assets.length, graphModules: recovered.graphModules, categoryCount: modules.length, witness: { valid: true, records: witnesses.reduce((n, w) => n + w.chain.length, 0), chains: witnesses.length, algorithm: 'sha256' } };
+  if (outputDir) {
+    await fs.writeFile(path.join(outputDir, 'decompiled.json'), JSON.stringify({ modules, metrics }));
+    await fs.writeFile(path.join(outputDir, 'manifest.json'), JSON.stringify({ evidence, sources: sourceManifest, assets: recovered.assets }, null, 2));
+    await fs.writeFile(path.join(outputDir, 'witness.json'), JSON.stringify(witnesses));
   }
-
-  const prevSig = extractSignature(prevResult);
-  const newSig = extractSignature(newResult);
-  const diff = computeDiff(prevSig, newSig);
-
-  // Add metrics
-  diff.metrics = {
-    previous: prevResult?.metrics || {},
-    current: newResult?.metrics || {},
-  };
-
-  // Add witness info
-  diff.witness = {
-    previous: prevResult?.witness ? { valid: true, records: prevResult.witness.length || 0 } : null,
-    current: newResult?.witness ? { valid: true, records: newResult.witness.length || 0 } : null,
-  };
-
-  console.log(JSON.stringify(diff, null, 2));
+  console.error(`  Validated ${sourceManifest.length} source modules, ${sourceMetrics.sizeBytes} source bytes, ${modules.length} categories, ${witnesses.length} verified witness chains`);
+  return { modules, metrics, evidence };
 }
-
-main().catch(err => {
-  console.error(`Fatal: ${err.message}`);
-  process.exit(1);
-});
+export async function runDiff(newVersion, previousVersion, options = {}) {
+  assertVersion(newVersion); assertVersion(previousVersion);
+  // Sequential processing bounds memory for native packages. Either failure is fatal.
+  const previous = await decompile(previousVersion, { ...options, outputDir: options.outputDir && path.join(options.outputDir, 'previous') });
+  const current = newVersion === previousVersion ? previous : await decompile(newVersion, { ...options, outputDir: options.outputDir && path.join(options.outputDir, 'current') });
+  const diff = { schemaVersion: 1, status: 'complete', package: PACKAGE, versions: { previous: previousVersion, current: newVersion }, ...computeDiff(extractSignature(previous), extractSignature(current)), metrics: { previous: previous.metrics, current: current.metrics }, evidence: { previous: previous.evidence, current: current.evidence }, witness: { previous: previous.evidence.witness, current: current.evidence.witness } };
+  if (options.outputDir) await fs.writeFile(path.join(options.outputDir, 'diff.json'), JSON.stringify(diff, null, 2));
+  return diff;
+}
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [newVersion, previousVersion, flag, outputDir, ...extra] = process.argv.slice(2);
+  if (!newVersion || !previousVersion || (flag && (flag !== '--output-dir' || !outputDir)) || extra.length) {
+    console.error('Usage: node scripts/decompile-and-diff.mjs NEW PREVIOUS [--output-dir DIR]');
+    process.exitCode = 2;
+  } else {
+    runDiff(newVersion, previousVersion, { outputDir }).then(diff => console.log(JSON.stringify(diff, null, 2))).catch(error => {
+      console.error(`Decompilation failed: ${error.message}`);
+      process.exitCode = 1;
+    });
+  }
+}

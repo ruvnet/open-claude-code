@@ -366,12 +366,12 @@ This is a **clean-room implementation** — no leaked source used. Architecture 
 Open Claude Code includes an automated nightly CI/CD pipeline that:
 
 1. **Detects** new Claude Code releases from npm registry (03:00 UTC daily)
-2. **Verifies** compatibility with 903+ tests, npm audit, and smoke tests
-3. **Analyzes** changes using Claude Sonnet 4.6 AI-powered discovery
+2. **Verifies** compatibility with the full test suite, npm audit, and smoke tests
+3. **Recovers and decompiles** the shipped JavaScript in both upstream versions; validates source syntax and witness hashes before optional AI discovery
 4. **Publishes** verified releases with detailed notes — only if ALL gates pass
 
 ```
-Cron 03:00 UTC → npm check → 903+ tests → npm audit → AI analysis → verified release
+Cron 03:00 UTC → npm check → tests/audit → validated source diff → optional AI → verified release
 ```
 
 **Manual trigger:**
@@ -387,7 +387,7 @@ See [ADR-001](docs/adr/ADR-001-nightly-verified-release-pipeline.md) for full ar
 
 ### rudevolution Integration
 
-The [rudevolution](https://github.com/ruvnet/rudevolution) submodule provides AI-powered decompilation analysis of Claude Code releases, tracking 34,759+ functions with 95.7% name accuracy. Used by the nightly pipeline for change discovery.
+The nightly pipeline uses the pinned [rudevolution](https://github.com/ruvnet/rudevolution) submodule's Node keyword classifier on recovered JavaScript. It supports legacy JavaScript npm packages and the source embedded in current Linux ELF64 Bun packages. It does not claim original-name recovery, Rust graph partitioning, or bytecode decompilation. See [decompilation validation](docs/nightly-decompilation.md) for the source, witness, failure, and verification contracts.
 
 </details>
 
