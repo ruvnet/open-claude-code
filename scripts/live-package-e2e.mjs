@@ -15,7 +15,7 @@ try{
   const marker=crypto.randomUUID();
   fs.writeFileSync(path.join(temp,'fixture.txt'),marker);
   const cli=path.join(temp,'node_modules/.bin/occ');
-  const result=spawnSync(cli,['--model','gpt-4.1-mini','--print','--allowedTools','Read','--max-turns','4','--output-format','stream-json','Use Read to read fixture.txt and return its exact contents.'],{
+  const result=spawnSync(cli,['--model','gpt-4.1-mini','--print','--allowedTools','Read','--max-turns','4','--output-format','stream-json','Use Read to read fixture.txt. Your final response MUST be only the file contents: no introduction, quotes, Markdown, or explanation.'],{
     cwd:temp,env:{...env,OPENAI_API_KEY:process.env.AI_API_KEY,OPENAI_BASE_URL:'https://openrouter.ai/api/v1'},
     encoding:'utf8',timeout:60000});
   if(result.status!==0) throw new Error('Live CLI failed (provider response omitted)');
