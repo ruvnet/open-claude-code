@@ -17,7 +17,7 @@
   <img alt="Nightly" src="https://img.shields.io/badge/nightly-verified_releases-brightgreen?style=flat-square" />
 </p>
 
-> **Verified nightly releases:** Detection, source validation, tests, AI analysis and npm publication run automatically. Capability proposals require review before implementation. See the release workflow and ADR-004.
+> **Release automation:** The nightly workflow gates publication on source validation, tests, AI analysis, and registry checks. A successful run is the evidence of completion; failed runs do not advance checkpoints. Capability proposals require review before implementation. See the release workflow and ADR-004.
 
 ---
 
@@ -43,6 +43,53 @@ npx @ruvnet/open-claude-code "what files are in this directory?"
 ```
 
 ---
+
+
+## Skills and Claude Code plugin
+
+Three shared skills cover CLI usage, diagnosis, and release verification. Choose one installation method to avoid duplicate skills.
+
+### Install with npx skills
+
+The tested skills installer requires Node 22.20 or newer (Node 24 recommended). OCC itself requires Node 20 or newer.
+
+```bash
+npx skills@1.7.2 add ruvnet/open-claude-code --agent claude-code --skill occ-use occ-diagnose occ-verify-release
+```
+
+OCC 2.1.2 also loads these project skills from `.claude/skills`, including the installer's symlinks. Project skills override user skills. Invoke them with OCC's Skill tool or slash commands.
+
+### Install the native Claude Code plugin
+
+In Claude Code:
+
+```text
+/plugin marketplace add ruvnet/open-claude-code
+/plugin install occ@ruvnet-occ
+/occ:occ-use
+/occ:occ-diagnose
+/occ:occ-verify-release
+```
+
+Restart Claude Code after installation if the current session has not loaded the new skills.
+
+```bash
+claude plugin update occ@ruvnet-occ
+claude plugin uninstall occ@ruvnet-occ
+```
+
+The `occ` plugin uses the same `skills/` sources. It installs no hooks, MCP servers, credentials, or background processes. It guides use of the separately published CLI. This native Claude Code package does not imply compatibility between OCC's custom PluginLoader and all third party Claude plugins.
+
+### Reproduce installation tests
+
+```bash
+# From a repository checkout, with Node 24 and Claude Code installed:
+node scripts/plugin-e2e.mjs
+# Test public GitHub distribution after publishing:
+node scripts/plugin-e2e.mjs ruvnet/open-claude-code
+```
+
+The suite installs and removes real skills and plugins in disposable profiles, checks all three Claude skill expansions with a local model fixture, and verifies OCC discovery. Live provider behavior is tested separately by `scripts/live-package-e2e.mjs`. Tested installer: skills 1.7.2; Claude Code: 2.1.283.
 
 ## 🧠 What Is This?
 

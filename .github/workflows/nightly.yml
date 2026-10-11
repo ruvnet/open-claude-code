@@ -73,6 +73,12 @@ jobs:
           npm audit --prefix v2 --audit-level=high
           find v2/src -name '*.mjs' -print0 | xargs -0 -n1 node --check
           node v2/src/index.mjs optimize status
+      - name: Verify skills and native Claude plugin
+        if: steps.candidate.outputs.run == 'true'
+        run: |
+          npm install --global --ignore-scripts @anthropic-ai/claude-code@2.1.283
+          node "$(npm root --global)/@anthropic-ai/claude-code/install.cjs"
+          node scripts/plugin-e2e.mjs
       - name: Recover and validate both upstream sources
         if: steps.candidate.outputs.run == 'true'
         env:

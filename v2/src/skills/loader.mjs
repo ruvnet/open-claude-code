@@ -29,12 +29,13 @@ export class SkillsLoader {
      */
     load(cwd = process.cwd()) {
         const isDefaultCwd = cwd === process.cwd();
+        this.skills.clear();
         this.searchPaths = [path.join(cwd, '.claude', 'skills')];
 
         if (isDefaultCwd) {
             const globalSkills = path.join(process.env.HOME || '', '.claude', 'skills');
             if (globalSkills !== this.searchPaths[0]) {
-                this.searchPaths.push(globalSkills);
+                this.searchPaths.unshift(globalSkills);
             }
         }
 
@@ -49,7 +50,8 @@ export class SkillsLoader {
         try {
             const entries = fs.readdirSync(dir, { withFileTypes: true });
             for (const entry of entries) {
-                if (!entry.isDirectory()) continue;
+                // skills CLI installs directory symlinks by default.
+                if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
                 const skillFile = path.join(dir, entry.name, 'SKILL.md');
                 try {

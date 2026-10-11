@@ -12,11 +12,22 @@ const MAX_TOOL_RECURSION_DEPTH = 50;
 
 export function createAgentLoop({ model, tools, permissions, settings, hooks, cascade = null }) {
     const contextManager = new ContextManager(settings.maxContextTokens || 180000);
+    for (const key of ['allowedTools', 'disallowedTools']) {
+        if (settings[key] != null && (!Array.isArray(settings[key]) ||
+            settings[key].some(name => typeof name !== 'string' || !name.trim()))) {
+            throw new TypeError(key + ' must be an array of nonempty tool names');
+        }
+    }
+    const allowedNames = new Set(settings.allowedTools || []);
+    const deniedNames = new Set(settings.disallowedTools || []);
+    const toolAllowed = name => !deniedNames.has(name) &&
+        (allowedNames.size === 0 || allowedNames.has(name));
+    const availableTools = () => (tools.list?.() || []).filter(tool => toolAllowed(tool.name));
 
     // Build system prompt using the new builder
     const promptResult = buildSystemPrompt({
         cwd: process.cwd(),
-        tools: tools.list?.() || [],
+        tools: availableTools(),
         override: settings.systemPromptOverride,
         addDirs: settings.addDirs,
     });
@@ -113,7 +124,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
         try {
             if (settings.stream !== false && provider === 'anthropic') {
                 // Streaming mode
-                response = await callApiStreaming(provider, activeModel, state, tools.list(), settings);
+                response = await callApiStreaming(provider, activeModel, state, availableTools(), settings);
                 const collectedContent = [];
                 let currentText = '';
                 let currentThinking = '';
@@ -140,7 +151,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
                 response = response.accumulated;
             } else {
                 // Non-streaming mode
-                response = await callApi(provider, activeModel, state, tools.list(), settings);
+                response = await callApi(provider, activeModel, state, availableTools(), settings);
             }
         } catch (err) {
             recordOptOutcome(false);
@@ -180,6 +191,14 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
             const toolResults = [];
 
             for (const block of toolUseBlocks) {
+                // Enforce before hooks and dispatch, even if the model invents an
+                // unadvertised call. Deny rules take precedence over allow rules.
+                if (!toolAllowed(block.name)) {
+                    yield { type: 'hookPermissionResult', tool: block.name, allowed: false };
+                    toolResults.push({ type: 'tool_result', tool_use_id: block.id,
+                        is_error: true, content: 'Tool blocked by configured allow/deny list' });
+                    continue;
+                }
                 // Run pre-tool hooks
                 if (hooks) {
                     const hookResult = await hooks.runPreToolUse(block.name, block.input);

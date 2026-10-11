@@ -2,6 +2,7 @@
 // Test the actual distributable in an isolated installation, without real credentials.
 // Usage: node scripts/package-e2e.mjs [path/to/package.tgz | @ruvnet/open-claude-code@VERSION]
 import assert from 'node:assert/strict';
+import { installWithPropagationRetry } from './registry-install.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
@@ -17,12 +18,12 @@ await mkdir(home);
 const env = { PATH: process.env.PATH, HOME: home, USERPROFILE: home,
     CI: 'true', NO_COLOR: '1', npm_config_userconfig: path.join(temp, 'empty-npmrc') };
 await writeFile(env.npm_config_userconfig, '');
-function run(command, args, cwd = temp, extraEnv = {}) {
+function run(command, args, cwd = temp, extraEnv = {}, timeoutMs = 90000) {
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, { cwd, env: { ...env, ...extraEnv },
             stdio: ['ignore', 'pipe', 'pipe'] });
         let stdout = '', stderr = '';
-        const timer = setTimeout(() => child.kill('SIGKILL'), 90000);
+        const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
         child.stdout.on('data', chunk => { stdout += chunk; });
         child.stderr.on('data', chunk => { stderr += chunk; });
         child.on('error', reject);
@@ -46,7 +47,10 @@ try {
         success(pack, 'npm pack');
         tarball = path.join(temp, JSON.parse(pack.stdout)[0].filename);
     }
-    const install = await run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', tarball]);
+    const install = await installWithPropagationRetry((attempt, timeoutMs) =>
+        run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund',
+            '--no-package-lock', '--prefer-online', '--cache', path.join(temp, 'npm-cache-' + attempt), tarball],
+            temp, {}, timeoutMs), { registry: Boolean(registrySpec) });
     success(install, 'clean package installation');
     const cli = path.join(temp, 'node_modules', '.bin', 'occ');
     const installedRoot = path.resolve(path.dirname(await realpath(cli)), '..');

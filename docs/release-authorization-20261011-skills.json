@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-11",
+  "userInstruction": "Keep going and publish",
+  "scope": [
+    "shared skills",
+    "native Claude Code plugin",
+    "OCC skill compatibility",
+    "registry propagation fix",
+    "verification",
+    "GitHub and npm publication"
+  ],
+  "version": "2.1.2",
+  "excluded": [
+    "automatic capability implementation",
+    "credential disclosure",
+    "automatic hooks"
+  ]
+}
