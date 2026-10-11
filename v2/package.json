@@ -1,14 +1,15 @@
 {
-  "name": "open-claude-code",
-  "version": "2.0.0",
-  "description": "Open source Claude Code CLI — based on ruDevolution decompilation of v2.1.91",
+  "name": "@ruvnet/open-claude-code",
+  "version": "2.1.1",
+  "description": "Open source agentic coding CLI with verified nightly upstream analysis",
   "type": "module",
   "bin": {
     "occ": "src/index.mjs"
   },
   "files": [
     "src/",
-    "test/"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "start": "node src/index.mjs",
@@ -31,7 +32,7 @@
     "url": "https://github.com/ruvnet/open-claude-code/issues"
   },
   "homepage": "https://github.com/ruvnet/open-claude-code#readme",
-  "main": "index.js",
+  "main": "src/index.mjs",
   "directories": {
     "test": "test"
   },
@@ -41,5 +42,11 @@
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "react": "^18.3.1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

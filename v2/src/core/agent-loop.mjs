@@ -111,7 +111,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
         let response;
 
         try {
-            if (settings.stream !== false) {
+            if (settings.stream !== false && provider === 'anthropic') {
                 // Streaming mode
                 response = await callApiStreaming(provider, activeModel, state, tools.list(), settings);
                 const collectedContent = [];
@@ -297,7 +297,8 @@ async function callAnthropic(model, state, toolDefs, settings, stream) {
         body.thinking = { type: 'enabled', budget_tokens: settings.thinkingBudget || 10000 };
     }
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch((process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '') + '/v1/messages', {
+        redirect: 'error',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -309,7 +310,7 @@ async function callAnthropic(model, state, toolDefs, settings, stream) {
 
     if (!res.ok) {
         const err = await res.text();
-        throw new Error(`Anthropic API error ${res.status}: ${err}`);
+        throw new Error(`Anthropic API error ${res.status}`);
     }
 
     if (stream) {
@@ -336,20 +337,25 @@ async function callOpenAI(model, state, toolDefs, settings, stream) {
     if (!apiKey) throw new Error('OPENAI_API_KEY is not set. Export it in your environment before running.');
 
     const messages = [];
-    if (state.systemPrompt) {
-        messages.push({ role: 'system', content: state.systemPrompt });
-    }
+    if (state.systemPrompt) messages.push({ role: 'system', content: state.systemPrompt });
     for (const msg of state.messages) {
         if (typeof msg.content === 'string') {
             messages.push({ role: msg.role, content: msg.content });
         } else if (Array.isArray(msg.content)) {
-            for (const block of msg.content) {
-                if (block.type === 'tool_result') {
-                    messages.push({
-                        role: 'tool',
+            if (msg.role === 'assistant') {
+                const calls = msg.content.filter(b => b.type === 'tool_use').map(b => ({
+                    id: b.id, type: 'function',
+                    function: { name: b.name, arguments: JSON.stringify(b.input || {}) }
+                }));
+                messages.push({ role: 'assistant',
+                    content: msg.content.filter(b => b.type === 'text').map(b => b.text).join('') || null,
+                    ...(calls.length && { tool_calls: calls }) });
+            } else {
+                for (const block of msg.content) {
+                    if (block.type === 'tool_result') messages.push({ role: 'tool',
                         tool_call_id: block.tool_use_id,
-                        content: block.content,
-                    });
+                        content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content) });
+                    else if (block.type === 'text') messages.push({ role: msg.role, content: block.text });
                 }
             }
         }
@@ -368,6 +374,7 @@ async function callOpenAI(model, state, toolDefs, settings, stream) {
 
     const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
     const res = await fetch(`${baseUrl}/chat/completions`, {
+        redirect: 'error',
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -378,7 +385,7 @@ async function callOpenAI(model, state, toolDefs, settings, stream) {
 
     if (!res.ok) {
         const err = await res.text();
-        throw new Error(`OpenAI API error ${res.status}: ${err}`);
+        throw new Error(`OpenAI API error ${res.status}`);
     }
 
     const data = await res.json();

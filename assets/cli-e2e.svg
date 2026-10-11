@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 350" role="img" aria-labelledby="title desc">
+<title id="title">Installed CLI end to end checks</title>
+<desc id="desc">A clean package installation reads a fresh fixture through the actual CLI. Anthropic streaming and OpenAI compatible mock providers verify the tool result and final output. Additional checks verify version, help, and nonzero authentication failure exits.</desc>
+<defs><linearGradient id="bg"><stop stop-color="#091725"/><stop offset="1" stop-color="#19112b"/></linearGradient></defs>
+<style>text{font-family:Arial,sans-serif;fill:#edf6ff}.muted{fill:#a8bbd0;font-size:15px}.mono{font-family:monospace;font-size:15px}.card{fill:#101d30;stroke:#34445e}.check{fill:#64e8c1}.beam{stroke:#63e5e9;stroke-width:3;stroke-dasharray:8 8;animation:flow 3s linear infinite}.cursor{fill:#65e8ed;animation:blink 1.8s ease-in-out infinite}.halo{fill:none;stroke:#ae8cff;stroke-width:2;animation:halo 4s ease-in-out infinite}@keyframes flow{to{stroke-dashoffset:-48}}@keyframes blink{50%{opacity:.2}}@keyframes halo{50%{stroke:#5ee6e9}}@media(prefers-reduced-motion:reduce){.beam,.cursor,.halo{animation:none}.beam{stroke-dasharray:none}}</style>
+<rect width="1000" height="350" rx="20" fill="url(#bg)"/>
+<text x="32" y="43" font-size="23" font-weight="700">TEST THE PACKAGE USERS INSTALL</text>
+<text x="32" y="69" class="muted">Actual CLI · real file read · isolated provider fixtures</text>
+<rect x="30" y="91" width="460" height="216" rx="12" class="card"/>
+<path d="M30 128H490" stroke="#34445e"/>
+<circle cx="49" cy="110" r="4" fill="#6b839e"/><circle cx="64" cy="110" r="4" fill="#6b839e"/><circle cx="79" cy="110" r="4" fill="#6b839e"/>
+<text x="102" y="115" class="muted">Clean install / fresh temporary directory</text>
+<text x="49" y="155" class="mono">$ occ --version</text>
+<text x="49" y="179" class="mono">✓ matches package metadata</text>
+<text x="49" y="211" class="mono">$ occ --print "Read fixture.txt"</text>
+<text x="49" y="235" class="mono">Read → unique fixture content</text>
+<text x="49" y="267" class="mono">✓ final output contains fixture</text>
+<rect x="49" y="281" width="9" height="13" class="cursor"/>
+<path d="M494 188H537" class="beam"/>
+<rect x="541" y="92" width="428" height="94" rx="12" class="card"/>
+<rect x="541" y="92" width="428" height="94" rx="12" class="halo"/>
+<text x="559" y="120" font-size="18" font-weight="700">Anthropic streaming</text>
+<text x="559" y="146" class="muted">Tool request → Read → tool result → answer</text>
+<text x="559" y="169" class="muted">OpenAI compatible path checks tool history</text>
+<rect x="541" y="202" width="428" height="105" rx="12" class="card"/>
+<text x="559" y="231" font-size="18" font-weight="700">Failure is observable</text>
+<text x="559" y="257" class="muted">401 rejection → nonzero exit</text>
+<text x="559" y="281" class="muted">Missing credential → nonzero exit</text>
+<text x="970" y="333" text-anchor="end" class="muted">Deterministic local mocks · no live inference claim</text>
+</svg>

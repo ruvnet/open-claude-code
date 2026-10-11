@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" role="img" aria-labelledby="title desc">
+<title id="title">Verified release flow</title>
+<desc id="desc">Detect a release, validate source, test the installed package, then publish. A failed gate stops the release. Animation indicates progression, not live status.</desc>
+<defs><linearGradient id="bg"><stop stop-color="#071524"/><stop offset="1" stop-color="#16112b"/></linearGradient><linearGradient id="edge"><stop stop-color="#33e2e6"/><stop offset="1" stop-color="#a787ff"/></linearGradient></defs>
+<style>
+text{font-family:Arial,sans-serif;fill:#eaf3ff}.small{font-size:14px;fill:#a9bad0}.label{font-size:20px;font-weight:700}.step{fill:#101f33;stroke:#334762}.line{stroke:url(#edge);stroke-width:3;fill:none}.pulse{fill:#5ceaf0;animation:travel 8s linear infinite}.gate{animation:glow 8s ease-in-out infinite}.g2{animation-delay:2s}.g3{animation-delay:4s}.g4{animation-delay:6s}@keyframes travel{0%,10%{transform:translateX(0);opacity:0}15%{opacity:1}85%{opacity:1}95%,100%{transform:translateX(690px);opacity:0}}@keyframes glow{0%,100%{stroke:#334762}10%,25%{stroke:#59e6ee}}@media(prefers-reduced-motion:reduce){.pulse{display:none}.gate{animation:none;stroke:#59e6ee}}
+</style>
+<rect width="1000" height="300" rx="20" fill="url(#bg)"/>
+<rect x="28" y="29" width="4" height="31" rx="2" fill="#52e5e7"/>
+<text x="46" y="47" font-size="23" font-weight="700">OPEN CLAUDE CODE</text>
+<text x="46" y="70" class="small">Verified release flow · source and package gates</text>
+<path class="line" d="M155 153H845"/>
+<circle class="pulse" cx="155" cy="153" r="5"/>
+<g><rect class="step gate" x="40" y="104" width="200" height="100" rx="12"/><text x="58" y="132" class="small">01 / UPSTREAM</text><text x="58" y="160" class="label">Detect</text><text x="58" y="184" class="small">Check version changes</text></g>
+<g><rect class="step gate g2" x="280" y="104" width="200" height="100" rx="12"/><text x="298" y="132" class="small">02 / SOURCE</text><text x="298" y="160" class="label">Validate</text><text x="298" y="184" class="small">Review and audit</text></g>
+<g><rect class="step gate g3" x="520" y="104" width="200" height="100" rx="12"/><text x="538" y="132" class="small">03 / DISTRIBUTABLE</text><text x="538" y="160" class="label">Test</text><text x="538" y="184" class="small">Install · run · assert</text></g>
+<g><rect class="step gate g4" x="760" y="104" width="200" height="100" rx="12"/><text x="778" y="132" class="small">04 / RELEASE</text><text x="778" y="160" class="label">Publish</text><text x="778" y="184" class="small">Only after gates pass</text></g>
+<path d="M620 204V241H415" stroke="#ef9aa8" stroke-width="2" fill="none"/>
+<rect x="40" y="224" width="375" height="34" rx="8" fill="#301d2c" stroke="#825268"/>
+<text x="57" y="246" font-size="14" fill="#ffd7df">FAILED GATE → STOP · repair before release</text>
+<text x="960" y="278" text-anchor="end" class="small">Workflow illustration · not live telemetry</text>
+</svg>

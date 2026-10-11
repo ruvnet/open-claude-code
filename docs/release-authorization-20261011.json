@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "request": "Fix it, test E2E and publish using @ruOS",
+  "repository": "ruvnet/open-claude-code",
+  "authorizedActions": [
+    "repair",
+    "test",
+    "commit",
+    "push",
+    "merge verified fixes",
+    "publish npm and GitHub release",
+    "configure required repository secrets from ruOS bindings"
+  ],
+  "constraints": [
+    "never expose credentials",
+    "all required gates pass",
+    "publish exact tested artifact",
+    "no speculative capability implementation"
+  ],
+  "executor": "ruOS Work Desktop 85050dc77130e8",
+  "decision": "authorized by explicit user release request"
+}

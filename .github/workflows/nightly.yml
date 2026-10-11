@@ -1,730 +1,193 @@
 name: Nightly Verified Release
-
 on:
   schedule:
-    # Run at 03:00 UTC every day
     - cron: '0 3 * * *'
   workflow_dispatch:
     inputs:
       force_release:
-        description: 'Force release even if no new upstream version detected'
-        required: false
-        default: 'false'
+        description: Run even if upstream version is unchanged
         type: boolean
-      skip_ai_analysis:
-        description: 'Skip AI-powered discovery analysis'
-        required: false
-        default: 'false'
-        type: boolean
-
+        default: false
+      channel:
+        description: npm distribution tag
+        type: choice
+        options: [nightly, latest]
+        default: nightly
 permissions:
   contents: write
   issues: write
-
 concurrency:
   group: nightly-verified-release
   cancel-in-progress: false
-
-env:
-  NODE_VERSION: '24'  # current upstream source uses explicit resource management (using)
-
 jobs:
-  # ──────────────────────────────────────────────────────────────────
-  # Phase 1: Detect upstream Claude Code releases
-  # ──────────────────────────────────────────────────────────────────
-  detect:
-    name: 'Phase 1: Detect'
+  release:
     runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.check.outputs.new_version }}
-      should_release: ${{ steps.check.outputs.should_release }}
-      previous_version: ${{ steps.check.outputs.previous_version }}
+    timeout-minutes: 30
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Check for new Claude Code release
-        id: check
-        run: |
-          chmod +x scripts/check-claude-release.sh
-
-          PREVIOUS_VERSION="$(cat scripts/last-known-claude-version.txt 2>/dev/null || echo 'unknown')"
-          echo "previous_version=${PREVIOUS_VERSION}" >> "$GITHUB_OUTPUT"
-
-          set +e
-          NEW_VERSION="$(bash scripts/check-claude-release.sh)"
-          EXIT_CODE=$?
-          set -e
-
-          if [ "$EXIT_CODE" -eq 0 ]; then
-            echo "New upstream version detected: ${NEW_VERSION}"
-            echo "new_version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-            echo "should_release=true" >> "$GITHUB_OUTPUT"
-          elif [ "$EXIT_CODE" -eq 1 ]; then
-            echo "No new upstream version. Current: ${PREVIOUS_VERSION}"
-            echo "new_version=${PREVIOUS_VERSION}" >> "$GITHUB_OUTPUT"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "::error::Failed to check upstream version"
-            echo "new_version=${PREVIOUS_VERSION}" >> "$GITHUB_OUTPUT"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            exit 2
-          fi
-
-      - name: Override if force release
-        id: force
-        if: github.event.inputs.force_release == 'true'
-        run: |
-          echo "Force release requested — overriding detection"
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
-
-    # Re-export with force override applied
-    # The verify job checks both detect.outputs.should_release and the force flag
-
-  # ──────────────────────────────────────────────────────────────────
-  # Phase 2: Verify — ALL gates must pass or release is blocked
-  # ──────────────────────────────────────────────────────────────────
-  verify:
-    name: 'Phase 2: Verify'
-    runs-on: ubuntu-latest
-    needs: detect
-    if: needs.detect.outputs.should_release == 'true' || github.event.inputs.force_release == 'true'
-    outputs:
-      test_pass_count: ${{ steps.tests.outputs.pass_count }}
-      test_fail_count: ${{ steps.tests.outputs.fail_count }}
-      audit_clean: ${{ steps.audit.outputs.clean }}
-      lint_clean: ${{ steps.lint.outputs.clean }}
-      smoke_ok: ${{ steps.smoke.outputs.ok }}
-      optimize_smoke_ok: ${{ steps.optimize_smoke.outputs.ok }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          persist-credentials: true
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: v2/package-lock.json
-
-      - name: Install dependencies
-        working-directory: v2
-        run: npm ci
-
-      - name: Decompiler regression tests
-        run: node --test scripts/test/*.test.mjs
-
-      # Gate 1: Test suite
-      - name: Run test suite
-        id: tests
-        working-directory: v2
-        run: |
-          set +e
-          TEST_OUTPUT="$(node test/test.mjs 2>&1)"
-          TEST_EXIT=$?
-          set -e
-
-          echo "${TEST_OUTPUT}"
-
-          # Parse pass/fail counts from test output
-          # Format: "Tests: 991 total, 991 passed, 0 failed"
-          PASS_COUNT="$(echo "${TEST_OUTPUT}" | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+' | tail -1 || echo '0')"
-          FAIL_COUNT="$(echo "${TEST_OUTPUT}" | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' | tail -1 || echo '0')"
-
-          if [ -z "${PASS_COUNT}" ] || [ "${PASS_COUNT}" = "0" ]; then
-            # Fallback: try "passing" format or count checkmarks
-            PASS_COUNT="$(echo "${TEST_OUTPUT}" | grep -oE '[0-9]+ passing' | grep -oE '[0-9]+' | tail -1 || echo '0')"
-          fi
-          if [ -z "${PASS_COUNT}" ] || [ "${PASS_COUNT}" = "0" ]; then
-            PASS_COUNT="$(echo "${TEST_OUTPUT}" | grep -cE '(✓|✔|PASS|pass)' || echo '0')"
-          fi
-
-          echo "pass_count=${PASS_COUNT}" >> "$GITHUB_OUTPUT"
-          echo "fail_count=${FAIL_COUNT}" >> "$GITHUB_OUTPUT"
-
-          echo "::notice::Tests: ${PASS_COUNT} passing, ${FAIL_COUNT} failing"
-
-          if [ "${TEST_EXIT}" -ne 0 ]; then
-            echo "::error::Test suite failed with exit code ${TEST_EXIT}"
-            exit 1
-          fi
-
-          if [ "${FAIL_COUNT}" -gt 0 ] 2>/dev/null; then
-            echo "::error::${FAIL_COUNT} tests failed"
-            exit 1
-          fi
-
-      # Gate 2: Security audit
-      - name: Security audit
-        id: audit
-        working-directory: v2
-        run: |
-          set +e
-          AUDIT_OUTPUT="$(npm audit --audit-level=high 2>&1)"
-          AUDIT_EXIT=$?
-          set -e
-
-          echo "${AUDIT_OUTPUT}"
-
-          if [ "${AUDIT_EXIT}" -eq 0 ]; then
-            echo "clean=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Security audit passed — no high/critical vulnerabilities"
-          else
-            echo "clean=false" >> "$GITHUB_OUTPUT"
-            echo "::error::Security audit found high or critical vulnerabilities"
-            exit 1
-          fi
-
-      # Gate 3: Lint (syntax validation)
-      - name: Lint check
-        id: lint
-        run: |
-          ERRORS=0
-          while IFS= read -r -d '' file; do
-            if ! node --check "${file}" 2>/dev/null; then
-              echo "::error file=${file}::Syntax error in ${file}"
-              ERRORS=$((ERRORS + 1))
-            fi
-          done < <(find v2/src -name '*.mjs' -print0)
-
-          if [ "${ERRORS}" -gt 0 ]; then
-            echo "clean=false" >> "$GITHUB_OUTPUT"
-            echo "::error::${ERRORS} file(s) have syntax errors"
-            exit 1
-          else
-            echo "clean=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::All .mjs files pass syntax validation"
-          fi
-
-      # Gate 4: Smoke test — verify CLI boots
-      - name: Smoke test
-        id: smoke
-        working-directory: v2
-        run: |
-          set +e
-          # Try --version first, then --help, then just check the process starts
-          SMOKE_OUTPUT="$(timeout 10 node src/index.mjs --version 2>&1)"
-          SMOKE_EXIT=$?
-
-          if [ "${SMOKE_EXIT}" -eq 124 ]; then
-            # Timeout — the CLI started but waited for input, which is OK
-            echo "::notice::CLI started successfully (timed out waiting for input)"
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "${SMOKE_EXIT}" -eq 0 ]; then
-            echo "::notice::CLI smoke test passed: ${SMOKE_OUTPUT}"
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Try --help as fallback
-          SMOKE_OUTPUT="$(timeout 10 node src/index.mjs --help 2>&1)"
-          SMOKE_EXIT=$?
-
-          if [ "${SMOKE_EXIT}" -eq 0 ] || [ "${SMOKE_EXIT}" -eq 124 ]; then
-            echo "::notice::CLI smoke test passed (--help)"
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Final fallback: just check if it starts at all
-          timeout 5 node -e "import('./src/index.mjs')" 2>/dev/null
-          if [ $? -eq 0 ] || [ $? -eq 124 ]; then
-            echo "::notice::CLI module loads successfully"
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "ok=false" >> "$GITHUB_OUTPUT"
-          echo "::error::CLI failed to start"
-          exit 1
-
-      # Gate 5: Metaharness self-optimization layer smoke
-      # Verifies the hand-added optimize integration (v2/src/optimize/) is wired
-      # in and reachable every night. Additive + non-fatal if the feature is
-      # absent (e.g. wiped by a future upstream sync) — it warns instead of
-      # breaking the green pipeline, but flags the regression loudly.
-      - name: Optimize layer smoke test
-        id: optimize_smoke
-        working-directory: v2
-        run: |
-          if [ ! -d src/optimize ]; then
-            echo "::warning::v2/src/optimize/ is missing — metaharness self-optimization layer not present"
-            echo "ok=skipped" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          set +e
-          OPT_OUTPUT="$(timeout 15 node src/index.mjs optimize status 2>&1)"
-          OPT_EXIT=$?
-          set -e
-
-          echo "${OPT_OUTPUT}"
-
-          if [ "${OPT_EXIT}" -eq 0 ]; then
-            echo "::notice::optimize status passed (self-optimization layer wired in)"
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Present but not exiting 0 → integration regression. Warn loudly but
-          # do not block the verified release (fail-open to keep nightly green).
-          echo "::warning::optimize status exited ${OPT_EXIT} — self-optimization integration may be broken"
-          echo "ok=false" >> "$GITHUB_OUTPUT"
-          exit 0
-
-  # ──────────────────────────────────────────────────────────────────
-  # Phase 3: Decompile + Analyze — full rudevolution pipeline
-  # ──────────────────────────────────────────────────────────────────
-  analyze:
-    name: 'Phase 3: Decompile & Analyze'
-    runs-on: ubuntu-latest
-    needs: [detect, verify]
-    if: |
-      always() &&
-      needs.verify.result == 'success'
-    outputs:
-      discovery_summary: ${{ steps.combine.outputs.summary }}
-      analysis_available: ${{ steps.combine.outputs.available }}
-      diff_available: ${{ steps.decompile.outputs.available }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      # ── Step 1: Full decompilation of both versions ──
-      - name: Run rudevolution decompiler
-        id: decompile
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Detect upstream and select immutable candidate
+        id: candidate
         env:
-          NEW: ${{ needs.detect.outputs.new_version }}
-          PREV: ${{ needs.detect.outputs.previous_version }}
+          FORCE: ${{ inputs.force_release }}
+          CHANNEL: ${{ inputs.channel || 'nightly' }}
         run: |
           set -euo pipefail
-          echo "::group::Decompiling @anthropic-ai/claude-code v${PREV} and v${NEW}"
-          # Either failed version, unsupported packaging, malformed output or
-          # invalid witness blocks this job and every downstream consumer.
-          node scripts/decompile-and-diff.mjs "${NEW}" "${PREV}" \
-            --output-dir /tmp/decompile-output > /tmp/decompile-diff.pending.json
-          node scripts/validate-decompile-diff.mjs /tmp/decompile-diff.pending.json "${NEW}" "${PREV}"
-          mv /tmp/decompile-diff.pending.json /tmp/decompile-diff.json
-          python3 scripts/format-diff-summary.py /tmp/decompile-diff.json "${PREV}" "${NEW}" > /tmp/decompile-summary.md
-          echo "available=true" >> "$GITHUB_OUTPUT"
-          echo "::endgroup::"
-
-      # ── Step 2: AI-powered analysis (uses decompile data) ──
-      # FOLLOW-UP (metaharness self-optimization, on-thesis): this step and
-      # scripts/auto-update-capabilities.mjs hardcode claude-sonnet-4. They could
-      # route through the cost-cascade concept in v2/src/optimize/ (cheap model
-      # first, escalate only if quality bar unmet) for ~5-10x cheaper discovery.
-      # Deferred deliberately — those scripts call the Anthropic API directly
-      # (not via the occ CLI router), so wiring the cascade is non-trivial and
-      # would touch the model call in the green release path. Tracked as a
-      # follow-up; not done here to keep the verified pipeline green.
-      - name: Run AI discovery analysis
-        id: ai_analysis
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          SKIP_AI_ANALYSIS: ${{ github.event.inputs.skip_ai_analysis }}
-        run: |
-          chmod +x scripts/analyze-discoveries.sh
-
-          if [ "${SKIP_AI_ANALYSIS}" = "true" ] || [ -z "${ANTHROPIC_API_KEY}" ]; then
-            echo "::notice::AI analysis skipped by request or missing API key"
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "> AI analysis skipped (requested or no API key)." > /tmp/ai-summary.md
+          test "${GITHUB_REF}" = refs/heads/main
+          NEW=$(npm view @anthropic-ai/claude-code version)
+          PREV=$(cat scripts/last-decompiled-claude-version.txt)
+          [[ "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$PREV" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+          if [ "$NEW" = "$PREV" ] && [ "$FORCE" != true ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No upstream change; verification and publication were not run." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-
-          set +e
-          AI_SUMMARY="$(bash scripts/analyze-discoveries.sh \
-            "${{ needs.detect.outputs.new_version }}" \
-            "${{ needs.detect.outputs.previous_version }}" 2>/tmp/ai-stderr.txt)"
-          AI_EXIT=$?
-          set -e
-
-          cat /tmp/ai-stderr.txt >&2 || true
-
-          if [ "${AI_EXIT}" -eq 0 ] && [ -n "${AI_SUMMARY}" ]; then
-            echo "${AI_SUMMARY}" > /tmp/ai-summary.md
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::AI analysis failed"
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "> AI analysis was unavailable for this release." > /tmp/ai-summary.md
+          BASE=$(node -p "require('./v2/package.json').version")
+          VERSION="$BASE"
+          if [ "$CHANNEL" = nightly ]; then
+            VERSION="$BASE-nightly.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}"
           fi
-
-      # ── Step 3: Combine into single discovery report ──
-      - name: Combine analysis
-        id: combine
-        run: |
-          {
-            echo "## Discovery Report"
-            echo ""
-            cat /tmp/decompile-summary.md
-            echo ""
-            echo "---"
-            echo ""
-            cat /tmp/ai-summary.md 2>/dev/null || true
-          } > /tmp/discovery-summary.md
-
-          echo "available=true" >> "$GITHUB_OUTPUT"
-
-          # Escape for GitHub output
-          ESCAPED="$(cat /tmp/discovery-summary.md | head -200 | sed ':a;N;$!ba;s/\n/%0A/g')"
-          echo "summary=${ESCAPED}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: discovery-summary
-          path: |
-            /tmp/discovery-summary.md
-            /tmp/decompile-diff.json
-            /tmp/decompile-output/**/manifest.json
-            /tmp/decompile-output/**/witness.json
-          if-no-files-found: error
-          retention-days: 90
-
-  # ──────────────────────────────────────────────────────────────────
-  # Phase 3b: Auto-update v2/src with new capabilities
-  # ──────────────────────────────────────────────────────────────────
-  autoupdate:
-    name: 'Phase 3b: Auto-Update Capabilities'
-    runs-on: ubuntu-latest
-    needs: [detect, verify, analyze]
-    if: |
-      always() &&
-      needs.verify.result == 'success' &&
-      needs.analyze.result == 'success' &&
-      needs.analyze.outputs.diff_available == 'true' &&
-      (needs.detect.outputs.should_release == 'true' || github.event.inputs.force_release == 'true')
-    outputs:
-      updates_applied: ${{ steps.update.outputs.applied }}
-      update_summary: ${{ steps.update.outputs.summary }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install dependencies
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          cd v2
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+      - name: Install locked dependencies
+        if: steps.candidate.outputs.run == 'true'
         working-directory: v2
-        run: npm ci
-
-      - name: Download decompile diff
-        uses: actions/download-artifact@v4
-        with:
-          name: discovery-summary
-          path: /tmp
-
-      - name: Validate decompile diff before auto-update
-        env:
-          NEW: ${{ needs.detect.outputs.new_version }}
-          PREV: ${{ needs.detect.outputs.previous_version }}
-        run: node scripts/validate-decompile-diff.mjs /tmp/decompile-diff.json "${NEW}" "${PREV}"
-
-      - name: Auto-update capabilities
-        id: update
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          PREVIOUS_VERSION: ${{ needs.detect.outputs.previous_version }}
-          NEW_VERSION: ${{ needs.detect.outputs.new_version }}
-          SKIP_AI_ANALYSIS: ${{ github.event.inputs.skip_ai_analysis }}
+        run: npm ci --ignore-scripts
+      - name: Regression, security and syntax gates
+        if: steps.candidate.outputs.run == 'true'
         run: |
-          echo "Diff file exists: $(test -f /tmp/decompile-diff.json && echo yes || echo no)"
-
-          if [ "${SKIP_AI_ANALYSIS}" = "true" ] || [ "${#ANTHROPIC_API_KEY}" -lt 10 ]; then
-            echo "::notice::AI updates skipped by request or missing API key"
-            echo "applied=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          set -euo pipefail
+          node --test scripts/test/*.test.mjs
+          npm test --prefix v2
+          npm audit --prefix v2 --audit-level=high
+          find v2/src -name '*.mjs' -print0 | xargs -0 -n1 node --check
+          node v2/src/index.mjs optimize status
+      - name: Recover and validate both upstream sources
+        if: steps.candidate.outputs.run == 'true'
+        env:
+          NEW: ${{ steps.candidate.outputs.new }}
+          PREV: ${{ steps.candidate.outputs.prev }}
+        run: |
+          set -euo pipefail
+          node scripts/decompile-and-diff.mjs "$NEW" "$PREV" --output-dir /tmp/decompile-output > /tmp/decompile-diff.json
+          node scripts/validate-decompile-diff.mjs /tmp/decompile-diff.json "$NEW" "$PREV"
+          python3 scripts/format-diff-summary.py /tmp/decompile-diff.json "$PREV" "$NEW" > /tmp/discovery-summary.md
+      - name: AI analysis must succeed
+        if: steps.candidate.outputs.run == 'true'
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_BASE_URL: https://openrouter.ai/api/v1
+          AI_MODEL: openai/gpt-4.1-mini
+          NEW: ${{ steps.candidate.outputs.new }}
+          PREV: ${{ steps.candidate.outputs.prev }}
+        run: |
+          set -euo pipefail
+          bash scripts/analyze-discoveries.sh "$NEW" "$PREV" > /tmp/ai-summary.md
+          cat /tmp/ai-summary.md >> /tmp/discovery-summary.md
+      - name: Record evidence based capability proposals
+        if: steps.candidate.outputs.run == 'true'
+        run: node scripts/auto-update-capabilities.mjs /tmp/decompile-diff.json > /tmp/capability-proposals.json
+      - name: Pack and exercise installed artifact
+        if: steps.candidate.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp README.md v2/README.md
+          npm pack ./v2 --pack-destination dist --json > /tmp/pack.json
+          TARBALL=$(node -p "JSON.parse(require('fs').readFileSync('/tmp/pack.json'))[0].filename")
+          node scripts/package-e2e.mjs "$PWD/dist/$TARBALL"
+          node scripts/release-receipt.mjs /tmp/pack.json "$GITHUB_SHA" > dist/receipt.json
+      - name: Live provider tool roundtrip on packed artifact
+        if: steps.candidate.outputs.run == 'true'
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+        run: |
+          TARBALL=$(node -p "JSON.parse(require('fs').readFileSync('/tmp/pack.json'))[0].filename")
+          node scripts/live-package-e2e.mjs "$PWD/dist/$TARBALL"
+      - name: Publish exact tested tarball and verify registry integrity
+        if: steps.candidate.outputs.run == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          CHANNEL: ${{ inputs.channel || 'nightly' }}
+        run: |
+          set -euo pipefail
+          test -n "$NODE_AUTH_TOKEN"
+          node scripts/publish-verified.mjs /tmp/pack.json dist "$CHANNEL"
+      - name: Verify fresh installation from npm
+        if: steps.candidate.outputs.run == 'true'
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+        run: node scripts/package-e2e.mjs "@ruvnet/open-claude-code@$VERSION"
+      - name: Publish GitHub release with evidence
+        if: steps.candidate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+          CHANNEL: ${{ inputs.channel || 'nightly' }}
+        run: |
+          set -euo pipefail
+          cp /tmp/capability-proposals.json dist/
+          cp /tmp/discovery-summary.md dist/
+          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
+            ARGS=()
+            if [ "$CHANNEL" = nightly ]; then ARGS+=(--prerelease); fi
+            gh release create "v$VERSION" dist/* --target "$GITHUB_SHA" --title "Verified release $VERSION" --notes-file /tmp/discovery-summary.md "${ARGS[@]}"
           fi
-
-          if [ ! -f /tmp/decompile-diff.json ]; then
-            echo "::error::Validated decompile diff is missing"
+          echo "Published @ruvnet/open-claude-code@$VERSION from $GITHUB_SHA. AI proposals are review evidence, not implemented features." >> "$GITHUB_STEP_SUMMARY"
+      - name: Advance upstream checkpoint only after publication
+        if: steps.candidate.outputs.run == 'true'
+        env:
+          NEW: ${{ steps.candidate.outputs.new }}
+          PREV: ${{ steps.candidate.outputs.prev }}
+        run: |
+          set -euo pipefail
+          git restore v2/package.json v2/package-lock.json
+          git fetch origin main
+          git switch --detach origin/main
+          CURRENT=$(cat scripts/last-decompiled-claude-version.txt)
+          if [ "$CURRENT" != "$PREV" ] && [ "$CURRENT" != "$NEW" ]; then
+            echo "Checkpoint advanced concurrently; refusing to overwrite it" >&2
             exit 1
           fi
-
-          set +e
-          UPDATE_OUTPUT="$(node scripts/auto-update-capabilities.mjs /tmp/decompile-diff.json 2>/tmp/update-stderr.txt)"
-          UPDATE_EXIT=$?
-          set -e
-
-          cat /tmp/update-stderr.txt >&2 || true
-
-          if [ "${UPDATE_EXIT}" -eq 0 ] && [ -n "${UPDATE_OUTPUT}" ]; then
-            echo "${UPDATE_OUTPUT}" > /tmp/update-summary.json
-            echo "applied=true" >> "$GITHUB_OUTPUT"
-
-            FILES_CHANGED=$(echo "${UPDATE_OUTPUT}" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('updates',[])))" 2>/dev/null || echo 0)
-            echo "::notice::Auto-updated ${FILES_CHANGED} files with new capabilities"
-          else
-            echo "::notice::Auto-update: no changes applied (exit ${UPDATE_EXIT})"
-            echo "applied=false" >> "$GITHUB_OUTPUT"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          echo "$NEW" > scripts/last-known-claude-version.txt
+          echo "$NEW" > scripts/last-decompiled-claude-version.txt
+          git add scripts/last-known-claude-version.txt scripts/last-decompiled-claude-version.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: record verified upstream $NEW"
+            git push origin HEAD:main
           fi
-
-      - name: Create PR with auto-updates
-        if: steps.update.outputs.applied == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          NEW_VERSION="${{ needs.detect.outputs.new_version }}"
-          DATE="$(date -u +%Y%m%d)"
-          BRANCH="nightly/auto-update-${DATE}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git checkout -b "${BRANCH}"
-          git add v2/src/
-          if git diff --cached --quiet; then
-            echo "No file changes to commit"
-            echo "applied=false" >> "$GITHUB_OUTPUT"
-          else
-            git commit -m "feat(nightly): auto-update capabilities from Claude Code v${NEW_VERSION}
-
-          Automated capability sync from upstream decompilation analysis.
-          Changes verified: tests pass with no regressions.
-
-          Co-Authored-By: Claude Sonnet 4 <noreply@anthropic.com>"
-
-            git push origin "${BRANCH}"
-
-            PR_URL=$(gh pr create \
-              --title "Nightly: auto-update capabilities from Claude Code v${NEW_VERSION}" \
-              --body "$(cat <<PRBODY
-          ## Auto-Updated Capabilities
-
-          Upstream Claude Code **v${NEW_VERSION}** has new capabilities detected by rudevolution decompilation.
-          This PR adds implementations matching the v2/src patterns.
-
-          ### Verification
-          - Tests passed before AND after updates
-          - No regressions detected
-          - Code generated by Claude Sonnet 4 following existing patterns
-
-          ### Changes
-          $(cat /tmp/update-summary.json 2>/dev/null | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)
-          for u in d.get('updates',[]):
-              print(f'- **{u[\"file\"]}**: {u[\"reason\"]}')
-          tb=d.get('testsBefore',{})
-          ta=d.get('testsAfter',{})
-          print(f'\nTests: {tb.get(\"passed\",\"?\")} -> {ta.get(\"passed\",\"?\")} passed')
-          " 2>/dev/null || echo "See update summary artifact")
-
-          ---
-          *Automated nightly PR from ADR-003 pipeline*
-          PRBODY
-          )" \
-              --label "nightly,automated" 2>&1 || echo "PR creation failed")
-
-            echo "::notice::Created PR: ${PR_URL}"
-
-            # Auto-merge if tests passed
-            gh pr merge "${BRANCH}" --squash --auto 2>&1 || echo "::notice::Auto-merge not available, PR needs manual review"
-          fi
-
-      - name: Upload update summary
-        if: steps.update.outputs.applied == 'true'
+      - name: Retain release evidence
+        if: always() && steps.candidate.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: update-summary
-          path: /tmp/update-summary.json
+          name: release-evidence
+          path: |
+            dist/
+            /tmp/decompile-diff.json
+            /tmp/ai-summary.md
+            /tmp/capability-proposals.json
           retention-days: 90
-
-  # ──────────────────────────────────────────────────────────────────
-  # Phase 4: Release — publish verified nightly build
-  # ──────────────────────────────────────────────────────────────────
-  release:
-    name: 'Phase 4: Release'
-    runs-on: ubuntu-latest
-    needs: [detect, verify, analyze, autoupdate]
-    if: |
-      always() &&
-      needs.verify.result == 'success' &&
-      needs.analyze.result == 'success' &&
-      needs.analyze.outputs.diff_available == 'true' &&
-      needs.autoupdate.result == 'success' &&
-      (needs.detect.outputs.should_release == 'true' || github.event.inputs.force_release == 'true')
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Download discovery summary
-        uses: actions/download-artifact@v4
-        with:
-          name: discovery-summary
-          path: /tmp
-
-      - name: Validate decompile evidence before release
-        env:
-          NEW: ${{ needs.detect.outputs.new_version }}
-          PREV: ${{ needs.detect.outputs.previous_version }}
-        run: node scripts/validate-decompile-diff.mjs /tmp/decompile-diff.json "${NEW}" "${PREV}"
-
-      - name: Determine release tag
-        id: tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          DATE="$(date -u +%Y%m%d)"
-
-          # Extract minor/patch from the current package version
-          PKG_VERSION="$(node -e "console.log(require('./v2/package.json').version)")"
-          TAG="v${PKG_VERSION}-nightly.${DATE}"
-
-          # Handle tag collision (multiple runs same day)
-          if gh release view "${TAG}" &>/dev/null; then
-            TAG="${TAG}.${{ github.run_number }}"
-          fi
-
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
-          echo "pkg_version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "::notice::Release tag: ${TAG}"
-
-      - name: Generate release notes
-        id: notes
-        env:
-          CLAUDE_VERSION: ${{ needs.detect.outputs.new_version }}
-          PREVIOUS_VERSION: ${{ needs.detect.outputs.previous_version }}
-          TEST_PASS_COUNT: ${{ needs.verify.outputs.test_pass_count }}
-          TEST_FAIL_COUNT: ${{ needs.verify.outputs.test_fail_count }}
-          AUDIT_CLEAN: ${{ needs.verify.outputs.audit_clean }}
-          LINT_CLEAN: ${{ needs.verify.outputs.lint_clean }}
-          SMOKE_OK: ${{ needs.verify.outputs.smoke_ok }}
-        run: |
-          chmod +x scripts/generate-release-notes.sh
-
-          DISCOVERY=""
-          if [ -f /tmp/discovery-summary.md ]; then
-            DISCOVERY="$(cat /tmp/discovery-summary.md)"
-          fi
-
-          NOTES="$(bash scripts/generate-release-notes.sh \
-            "${CLAUDE_VERSION}" \
-            "${TEST_PASS_COUNT}" \
-            "${PREVIOUS_VERSION}" \
-            "${AUDIT_CLEAN}" \
-            "${LINT_CLEAN}" \
-            "${SMOKE_OK}" \
-            "${TEST_FAIL_COUNT}" \
-            "${DISCOVERY}")"
-
-          # Write notes to file for the release step
-          echo "${NOTES}" > /tmp/release-notes.md
-          echo "::notice::Release notes generated"
-
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-
-          gh release create "${TAG}" \
-            --title "Nightly Verified Build ${TAG}" \
-            --notes-file /tmp/release-notes.md \
-            --prerelease \
-            --target "${GITHUB_SHA}"
-
-          echo "::notice::Release published: ${TAG}"
-
-      - name: Update last-known version
-        run: |
-          echo "${{ needs.detect.outputs.new_version }}" > scripts/last-known-claude-version.txt
-          echo "${{ needs.detect.outputs.new_version }}" > scripts/last-decompiled-claude-version.txt
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add scripts/last-known-claude-version.txt scripts/last-decompiled-claude-version.txt
-          git diff --cached --quiet || git commit -m "chore: update last-known Claude Code version to ${{ needs.detect.outputs.new_version }}"
-          git push origin "HEAD:${{ github.event.repository.default_branch }}"
-
-
-  # ──────────────────────────────────────────────────────────────────
-  # Failure handler — open issue for investigation
-  # ──────────────────────────────────────────────────────────────────
-  on-failure:
-    name: 'Handle Failure'
-    runs-on: ubuntu-latest
-    needs: [detect, verify, analyze, autoupdate, release]
+  failure:
+    needs: release
     if: failure()
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Open failure issue
+      - name: Report failed release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          DATE="$(date -u +%Y-%m-%d)"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-          # Check if a similar issue already exists
-          EXISTING="$(gh issue list --label "nightly-failure" --state open --limit 1 --json number -q '.[0].number' 2>/dev/null || echo '')"
-
-          if [ -n "${EXISTING}" ]; then
-            gh issue comment "${EXISTING}" --body "$(cat <<EOF
-          ### Nightly pipeline failed again on ${DATE}
-
-          **Run:** ${RUN_URL}
-          **Upstream version:** ${{ needs.detect.outputs.new_version }}
-
-          Please investigate the linked workflow run.
-          EOF
-          )"
-            echo "::notice::Commented on existing issue #${EXISTING}"
-          else
-            gh issue create \
-              --title "Nightly verified release failed — ${DATE}" \
-              --label "nightly-failure,bug" \
-              --body "$(cat <<EOF
-          ## Nightly Verified Release Pipeline Failure
-
-          **Date:** ${DATE}
-          **Workflow Run:** ${RUN_URL}
-          **Upstream Claude Code Version:** ${{ needs.detect.outputs.new_version }}
-          **Previous Version:** ${{ needs.detect.outputs.previous_version }}
-
-          ### Investigation Checklist
-
-          - [ ] Check test results
-          - [ ] Check security audit
-          - [ ] Check lint/syntax errors
-          - [ ] Check smoke test
-          - [ ] Check both upstream decompilations, source validation and witnesses
-          - [ ] Review workflow logs
-
-          ### Quick Links
-
-          - [Workflow Run](${RUN_URL})
-          - [Test Suite](../blob/main/v2/test/test.mjs)
-          - [Dashboard](https://pi.ruv.io)
-          EOF
-          )"
-            echo "::notice::Created failure investigation issue"
-          fi
-
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh issue create --title "Verified release failed (run ${{ github.run_id }})" --body "Required release gate failed. Inspect $RUN_URL. No capability or publication success should be inferred from a partial run."

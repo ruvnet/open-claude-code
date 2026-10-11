@@ -1,13 +1,15 @@
 <h1 align="center">Open Claude Code</h1>
 <h3 align="center">Open Source Claude Code CLI — Reverse Engineered & Rebuilt</h3>
 
+![Verified release pipeline: detect, validate, test, publish](https://raw.githubusercontent.com/ruvnet/open-claude-code/main/assets/verified-release-flow.svg)
+
 <p align="center">
-  <em>A fully functional open source implementation of Anthropic's Claude Code CLI,<br/>
+  <em>An open source implementation of Anthropic's Claude Code CLI,<br/>
   built from decompiled source intelligence using <a href="https://github.com/ruvnet/rudevolution">ruDevolution</a>.</em>
 </p>
 
 <p align="center">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-991_passing-brightgreen?style=flat-square" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-1008_passing-brightgreen?style=flat-square" />
   <img alt="Tools" src="https://img.shields.io/badge/tools-25-blue?style=flat-square" />
   <img alt="Commands" src="https://img.shields.io/badge/commands-40-blue?style=flat-square" />
   <img alt="npm" src="https://img.shields.io/npm/v/@ruvnet/open-claude-code?style=flat-square&label=npm" />
@@ -15,7 +17,7 @@
   <img alt="Nightly" src="https://img.shields.io/badge/nightly-verified_releases-brightgreen?style=flat-square" />
 </p>
 
-> **Automated Nightly Releases** — Open Claude Code automatically detects new [Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code) releases, runs 903+ tests to verify zero regressions, and publishes verified builds with AI-powered discovery analysis. See [Releases](https://github.com/ruvnet/open-claude-code/releases) | [ADR-001](docs/adr/ADR-001-nightly-verified-release-pipeline.md) | [pi.ruv.io](https://pi.ruv.io)
+> **Verified nightly releases:** Detection, source validation, tests, AI analysis and npm publication run automatically. Capability proposals require review before implementation. See the release workflow and ADR-004.
 
 ---
 
@@ -48,7 +50,7 @@ npx @ruvnet/open-claude-code "what files are in this directory?"
 
 It's not a copy — it's a clean-room implementation that mirrors the actual Claude Code architecture: async generator agent loop, 25 tools, 4 MCP transports, 6 permission modes, hooks, settings chain, sessions, and more.
 
-**1,581 tests. 61 files. 8,314 lines. 100% functional.**
+**1,008 unit tests plus installed-package behavioral checks. Full upstream parity is not established.**
 
 ---
 
@@ -110,7 +112,7 @@ occ [options] [prompt]
 Options:
   -m, --model <model>          Model to use (default: claude-sonnet-4-6)
   -p, --print                  Print mode (non-interactive, output only)
-  --permission-mode <mode>     Permission mode: default, auto, plan, acceptEdits, 
+  --permission-mode <mode>     Permission mode: default, auto, plan, acceptEdits,
                                bypassPermissions, dontAsk
   --system-prompt <text>       Override system prompt
   --add-dir <path>             Additional CLAUDE.md directory
@@ -284,7 +286,7 @@ Invoke with `/deploy` in the REPL.
 
 ## 🔐 Multi-Provider Support
 
-Works with 5 AI providers:
+Adapters exist for Anthropic, OpenAI-compatible endpoints and Google. Installed-package E2E covers Anthropic and OpenAI-compatible tool roundtrips; Google is not covered by that gate. Bedrock and Vertex remain stubs.
 
 ```bash
 # Anthropic (default)
@@ -294,13 +296,9 @@ ANTHROPIC_API_KEY=... occ "hello"
 OPENAI_API_KEY=... occ -m gpt-4o "hello"
 
 # Google
-GOOGLE_AI_API_KEY=... occ -m gemini-2.5-flash "hello"
+GOOGLE_API_KEY=... occ -m gemini-2.5-flash "hello"
 
-# AWS Bedrock
-AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... occ -m bedrock/claude-sonnet "hello"
 
-# Google Vertex
-GOOGLE_APPLICATION_CREDENTIALS=... occ -m vertex/claude-sonnet "hello"
 ```
 
 ---
@@ -358,38 +356,27 @@ This is a **clean-room implementation** — no leaked source used. Architecture 
 - [v2 Architecture (ADR-001)](./docs/adr/ADR-001-v2-architecture.md)
 - [Path to 100% (ADR-002)](./docs/adr/ADR-002-path-to-100-percent.md)
 
-<details>
-<summary><b>Nightly Release Pipeline</b></summary>
+## Verified release automation
 
-### Automated Nightly Verified Releases (ADR-001)
+![Installed CLI end to end verification](https://raw.githubusercontent.com/ruvnet/open-claude-code/main/assets/cli-e2e.svg)
 
-Open Claude Code includes an automated nightly CI/CD pipeline that:
+Runs daily at 03:00 UTC. Unchanged upstream versions are explicitly reported as no-op runs.
 
-1. **Detects** new Claude Code releases from npm registry (03:00 UTC daily)
-2. **Verifies** compatibility with the full test suite, npm audit, and smoke tests
-3. **Recovers and decompiles** the shipped JavaScript in both upstream versions; validates source syntax and witness hashes before optional AI discovery
-4. **Publishes** verified releases with detailed notes — only if ALL gates pass
+Publication requires unit and regression tests, a dependency audit, validated source recovery, successful AI analysis, clean package installation tests, and a live provider Read tool roundtrip against a fresh random fixture. The exact tested tarball is published to npm, its SHA-512 integrity verified, and the registry version installed and exercised again.
 
-```
-Cron 03:00 UTC → npm check → tests/audit → validated source diff → optional AI → verified release
-```
+Only then does the upstream checkpoint advance. Failed gates stop publication and create an investigation issue. GitHub releases attach the package, source commit receipt and analysis. Nightly versions use the npm nightly tag. Stable releases require the manually selected latest channel.
 
-**Manual trigger:**
+Required repository secrets: AI_API_KEY (OpenRouter) and NPM_TOKEN with publishing permission. GITHUB_TOKEN is supplied by GitHub Actions. ruOS bindings provision credentials without printing their values.
+
 ```bash
-gh workflow run nightly.yml -f force_release=true
+gh workflow run nightly.yml -f force_release=true -f channel=nightly
+npm install @ruvnet/open-claude-code@nightly
 ```
 
-**Required secrets:**
-- `GITHUB_TOKEN` — automatic
-- `ANTHROPIC_API_KEY` — optional, for AI discovery analysis
+Structural changes produce review proposals, not implemented features. Concrete behavioral specifications and new tests are required before implementing them. Full upstream parity is not established.
 
-See [ADR-001](docs/adr/ADR-001-nightly-verified-release-pipeline.md) for full architecture.
+See [release integrity ADR](docs/adr/ADR-004-verified-npm-publication.md).
 
-### rudevolution Integration
-
-The nightly pipeline uses the pinned [rudevolution](https://github.com/ruvnet/rudevolution) submodule's Node keyword classifier on recovered JavaScript. It supports legacy JavaScript npm packages and the source embedded in current Linux ELF64 Bun packages. It does not claim original-name recovery, Rust graph partitioning, or bytecode decompilation. See [decompilation validation](docs/nightly-decompilation.md) for the source, witness, failure, and verification contracts.
-
-</details>
 
 ## 📄 License
 

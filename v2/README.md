@@ -1,113 +1,383 @@
-# open-claude-code v2 — Technical Guide
+<h1 align="center">Open Claude Code</h1>
+<h3 align="center">Open Source Claude Code CLI — Reverse Engineered & Rebuilt</h3>
 
-## Quick Start
+![Verified release pipeline: detect, validate, test, publish](https://raw.githubusercontent.com/ruvnet/open-claude-code/main/assets/verified-release-flow.svg)
+
+<p align="center">
+  <em>An open source implementation of Anthropic's Claude Code CLI,<br/>
+  built from decompiled source intelligence using <a href="https://github.com/ruvnet/rudevolution">ruDevolution</a>.</em>
+</p>
+
+<p align="center">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-1008_passing-brightgreen?style=flat-square" />
+  <img alt="Tools" src="https://img.shields.io/badge/tools-25-blue?style=flat-square" />
+  <img alt="Commands" src="https://img.shields.io/badge/commands-40-blue?style=flat-square" />
+  <img alt="npm" src="https://img.shields.io/npm/v/@ruvnet/open-claude-code?style=flat-square&label=npm" />
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
+  <img alt="Nightly" src="https://img.shields.io/badge/nightly-verified_releases-brightgreen?style=flat-square" />
+</p>
+
+> **Verified nightly releases:** Detection, source validation, tests, AI analysis and npm publication run automatically. Capability proposals require review before implementation. See the release workflow and ADR-004.
+
+---
+
+## ⚡ Quick Start
+
+```bash
+# Run instantly (no install)
+npx @ruvnet/open-claude-code "explain this codebase"
+
+# Or install globally
+npm install -g @ruvnet/open-claude-code
+occ "hello"
+
+# Interactive mode
+occ
+```
+
+**Requires:** `ANTHROPIC_API_KEY` environment variable set.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-node src/index.mjs "hello"          # one-shot
-node src/index.mjs                   # interactive REPL
-node src/index.mjs -m claude-opus-4-6 -p "explain this"  # print mode
+npx @ruvnet/open-claude-code "what files are in this directory?"
 ```
 
-## Architecture
+---
 
-```
-v2/src/
-├── core/                    # Core engine
-│   ├── agent-loop.mjs       # Async generator (13 event types, recursive)
-│   ├── streaming.mjs        # SSE handler (all event types)
-│   ├── context-manager.mjs  # Token tracking + compaction
-│   ├── system-prompt.mjs    # CLAUDE.md loading + cache boundary
-│   ├── session.mjs          # Save/resume/teleport
-│   ├── checkpoints.mjs      # File checkpointing + undo
-│   ├── cache.mjs            # Prompt caching
-│   ├── rate-limiter.mjs     # 429/529 handling + backoff
-│   ├── providers.mjs        # 5 AI providers
-│   └── scheduler.mjs        # Cron task scheduling
-├── tools/                   # 25 tools
-│   ├── registry.mjs         # validateInput/call interface
-│   ├── bash.mjs             # Shell (sandboxed, timeout, background)
-│   ├── read.mjs             # File read (PDF, binary detect, line nums)
-│   ├── edit.mjs             # Edit (replace_all, uniqueness check)
-│   ├── write.mjs            # Write (mkdir, overwrite protection)
-│   ├── glob.mjs             # Glob (proper matching, mtime sort)
-│   ├── grep.mjs             # Grep (-i/-n/-A/-B/-C, ripgrep)
-│   ├── agent.mjs            # Subagent (worktree, background, model)
-│   ├── web-fetch.mjs        # URL fetch
-│   ├── web-search.mjs       # Web search
-│   ├── todo-write.mjs       # Task management
-│   ├── notebook-edit.mjs    # Jupyter notebooks
-│   ├── multi-edit.mjs       # Atomic multi-file edits
-│   ├── ls.mjs               # Directory listing
-│   ├── tool-search.mjs      # Deferred tool discovery
-│   ├── ask-user.mjs         # User prompts
-│   ├── skill.mjs            # Skill invocation
-│   ├── send-message.mjs     # Agent team messaging
-│   ├── cron-create.mjs      # Scheduled tasks
-│   ├── cron-delete.mjs
-│   ├── cron-list.mjs
-│   ├── enter-worktree.mjs   # Git worktree
-│   ├── exit-worktree.mjs
-│   ├── remote-trigger.mjs   # Remote execution
-│   ├── lsp.mjs              # Language server
-│   └── read-mcp-resource.mjs
-├── mcp/                     # MCP protocol
-│   ├── client.mjs           # JSON-RPC client
-│   ├── transport-sse.mjs    # SSE transport
-│   ├── transport-shttp.mjs  # Streamable HTTP
-│   └── transport-ws.mjs     # WebSocket
-├── permissions/              # Security
-│   ├── checker.mjs          # 6 modes + interactive prompts
-│   ├── sandbox.mjs          # bubblewrap/seatbelt
-│   ├── injection-check.mjs  # Command injection detection
-│   ├── path-check.mjs       # File path validation
-│   └── prompt.mjs           # Permission prompting
-├── hooks/
-│   └── engine.mjs           # PreToolUse/PostToolUse/Stop/Notification
-├── agents/
-│   ├── loader.mjs           # Agent definition loader
-│   ├── parser.mjs           # JSON/MD frontmatter parser
-│   └── teams.mjs            # Multi-agent teams
-├── skills/
-│   ├── loader.mjs           # Skill discovery
-│   └── runner.mjs           # Skill execution
-├── plugins/
-│   └── loader.mjs           # Plugin discovery + git clone
-├── auth/
-│   └── oauth.mjs            # PKCE OAuth flow
-├── config/
-│   ├── settings.mjs         # 4-source deep merge
-│   ├── cli-args.mjs         # All CLI flags
-│   └── env.mjs              # 104 env vars
-├── ui/
-│   ├── repl.mjs             # Interactive REPL
-│   ├── ink-app.mjs          # Rich terminal output
-│   └── commands.mjs         # 40 slash commands
-├── telemetry/
-│   └── index.mjs            # Telemetry stub
-└── index.mjs                # Entry point
+## 🧠 What Is This?
 
-test/
-└── test.mjs                 # 1,581 tests
-```
+**Open Claude Code** is a ground-up open source rebuild of Anthropic's [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), informed by [ruDevolution's](https://github.com/ruvnet/rudevolution) AI-powered decompilation of the published npm package.
 
-## Stats
+It's not a copy — it's a clean-room implementation that mirrors the actual Claude Code architecture: async generator agent loop, 25 tools, 4 MCP transports, 6 permission modes, hooks, settings chain, sessions, and more.
 
-| Metric | Value |
-|--------|:-----:|
-| Source files | 61 |
-| Lines of code | 8,314 |
-| Tests | 1,581 (0 failures) |
-| Tools | 25 |
-| Slash commands | 40 |
-| MCP transports | 4 |
-| AI providers | 5 |
-| Env vars | 104 |
-| Permission modes | 6 |
+**1,008 unit tests plus installed-package behavioral checks. Full upstream parity is not established.**
 
-## Tests
+---
+
+## 📦 Installation
+
+### npx (no install needed)
 
 ```bash
-node test/test.mjs
-# Tests: 1581 total, 1581 passed, 0 failed
+npx @ruvnet/open-claude-code "your prompt here"
 ```
+
+### Global install
+
+```bash
+npm install -g @ruvnet/open-claude-code
+occ "your prompt here"
+```
+
+### From source
+
+```bash
+git clone https://github.com/ruvnet/open-claude-code.git
+cd open-claude-code/v2
+export ANTHROPIC_API_KEY=sk-ant-...
+node src/index.mjs "hello"
+```
+
+---
+
+## 🖥️ Usage
+
+### One-shot mode
+
+```bash
+occ "explain the auth module"
+occ "fix the bug in server.js"
+occ "create a REST API for user management"
+occ "find all TODO comments in this project"
+```
+
+### Interactive REPL
+
+```bash
+occ
+# > explain this codebase
+# > /help
+# > /tools
+# > /model claude-opus-4-6
+# > refactor the database layer
+# > /cost
+# > /exit
+```
+
+### CLI Options
+
+```bash
+occ [options] [prompt]
+
+Options:
+  -m, --model <model>          Model to use (default: claude-sonnet-4-6)
+  -p, --print                  Print mode (non-interactive, output only)
+  --permission-mode <mode>     Permission mode: default, auto, plan, acceptEdits,
+                               bypassPermissions, dontAsk
+  --system-prompt <text>       Override system prompt
+  --add-dir <path>             Additional CLAUDE.md directory
+  --max-turns <n>              Maximum conversation turns
+  --allowedTools <tools>       Comma-separated allowed tools
+  --disallowedTools <tools>    Comma-separated denied tools
+  --output-format <fmt>        Output: text, json, stream-json
+  -v, --verbose                Verbose output
+  -d, --debug                  Debug mode
+  --version                    Show version
+  -h, --help                   Show help
+```
+
+### Examples
+
+```bash
+# Use a different model
+occ -m claude-opus-4-6 "design a database schema for a blog"
+
+# Print mode (for piping)
+occ -p "list all functions in src/" > functions.txt
+
+# Plan mode (read-only, no edits)
+occ --permission-mode plan "review the security of auth.js"
+
+# Restrict tools
+occ --allowedTools "Read,Glob,Grep" "find all API endpoints"
+
+# With custom system prompt
+occ --system-prompt "You are a senior Go developer" "review main.go"
+```
+
+---
+
+## 🔧 Interactive Commands
+
+40 slash commands available in REPL mode:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show all commands |
+| `/model <name>` | Switch model mid-conversation |
+| `/tools` | List available tools |
+| `/tokens` | Show current token usage |
+| `/cost` | Show session cost estimate |
+| `/compact` | Compact context window |
+| `/undo` | Undo last file edit |
+| `/clear` | Clear conversation history |
+| `/doctor` | Check API connectivity + health |
+| `/fast` | Toggle fast mode (Haiku) |
+| `/effort <level>` | Set effort: low, medium, high, max |
+| `/resume [id]` | Resume a previous session |
+| `/sessions` | List saved sessions |
+| `/agents` | List custom agents |
+| `/skills` | List available skills |
+| `/hooks` | Show active hooks |
+| `/config` | Show current settings |
+| `/permissions` | Show permission mode |
+| `/mcp` | Show MCP server status |
+| `/memory` | Show memory usage |
+| `/exit` | Exit |
+
+---
+
+## 🔨 Tools
+
+25 built-in tools matching Claude Code's tool system:
+
+| Tool | Description |
+|------|-------------|
+| **Bash** | Execute shell commands (sandboxed) |
+| **Read** | Read files with line numbers |
+| **Edit** | Replace strings in files |
+| **Write** | Create/overwrite files |
+| **Glob** | Find files by pattern |
+| **Grep** | Search file contents (regex) |
+| **LS** | List directory contents |
+| **Agent** | Spawn sub-agents |
+| **WebFetch** | Fetch URL content |
+| **WebSearch** | Web search |
+| **TodoWrite** | Task management |
+| **NotebookEdit** | Edit Jupyter notebooks |
+| **MultiEdit** | Atomic multi-file edits |
+| **ToolSearch** | Discover deferred tools |
+| **AskUser** | Prompt user for input |
+| **Skill** | Invoke a skill |
+| **SendMessage** | Agent team messaging |
+| **CronCreate/Delete/List** | Scheduled tasks |
+| **EnterWorktree/ExitWorktree** | Git worktree isolation |
+| **RemoteTrigger** | Remote execution |
+| **LSP** | Language server protocol |
+| **ReadMcpResource** | Read MCP resources |
+
+---
+
+## ⚙️ Configuration
+
+### Settings
+
+Create `.claude/settings.json` in your project or `~/.claude/settings.json` globally:
+
+```json
+{
+  "model": "claude-sonnet-4-6",
+  "permissions": {
+    "defaultMode": "auto"
+  },
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Bash",
+      "hooks": [{ "type": "command", "command": "echo 'Running bash...'" }]
+    }]
+  },
+  "autoCompactEnabled": true,
+  "alwaysThinkingEnabled": true
+}
+```
+
+Settings are loaded from 4 sources (in priority order):
+1. `.claude/settings.local.json` (local, gitignored)
+2. `.claude/settings.json` (project, shared)
+3. `~/.claude/settings.json` (user global)
+4. Managed policy (enterprise)
+
+### CLAUDE.md
+
+Create a `CLAUDE.md` in your project root to customize behavior:
+
+```markdown
+# Project Rules
+- Always use TypeScript
+- Follow TDD
+- Keep files under 500 lines
+```
+
+CLAUDE.md files are loaded from: `~/.claude/CLAUDE.md` → parent directories → project root → `.claude/CLAUDE.md`.
+
+### Custom Agents
+
+Create `.claude/agents/reviewer.md`:
+
+```markdown
+---
+name: reviewer
+description: Code review specialist
+model: claude-sonnet-4-6
+tools: [Read, Glob, Grep]
+---
+
+You are a thorough code reviewer. Check for bugs, security issues, and style.
+```
+
+### Skills
+
+Create `.claude/skills/deploy/SKILL.md`:
+
+```markdown
+---
+name: deploy
+description: Deploy to production
+---
+
+1. Run tests: npm test
+2. Build: npm run build
+3. Deploy: ./scripts/deploy.sh
+```
+
+Invoke with `/deploy` in the REPL.
+
+---
+
+## 🔐 Multi-Provider Support
+
+Adapters exist for Anthropic, OpenAI-compatible endpoints and Google. Installed-package E2E covers Anthropic and OpenAI-compatible tool roundtrips; Google is not covered by that gate. Bedrock and Vertex remain stubs.
+
+```bash
+# Anthropic (default)
+ANTHROPIC_API_KEY=... occ "hello"
+
+# OpenAI
+OPENAI_API_KEY=... occ -m gpt-4o "hello"
+
+# Google
+GOOGLE_API_KEY=... occ -m gemini-2.5-flash "hello"
+
+
+```
+
+---
+
+## 🔗 MCP Integration
+
+Connect to MCP servers for additional tools:
+
+```json
+// .mcp.json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "npx",
+      "args": ["-y", "my-mcp-server"],
+      "env": { "API_KEY": "..." }
+    }
+  }
+}
+```
+
+Supports 4 transports: stdio, SSE, Streamable HTTP, WebSocket.
+
+---
+
+## 🔍 Background: The Claude Code Source Leak
+
+On March 31, 2026, Anthropic accidentally shipped source maps in the Claude Code npm package, [exposing the full TypeScript source](https://www.sabrina.dev/p/claude-code-source-leak-analysis). This project takes a different approach — we use [ruDevolution](https://github.com/ruvnet/rudevolution) to analyze the **published npm package** legally and rebuild from that intelligence.
+
+### What ruDevolution Found
+
+| Discovery | Evidence |
+|-----------|---------|
+| 🤖 Agent Teams | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` |
+| 🌙 Auto Dream Mode | `tengu_auto_dream_completed` |
+| 🔮 claude-opus-4-6 | Unreleased model ID |
+| 🔐 6 "amber" codenames | Internal feature gates |
+| ☁️ Cloud Code Runner | BYOC compute |
+| 📡 MCP Streamable HTTP | New transport |
+
+[Download decompiled releases →](https://github.com/ruvnet/rudevolution/releases)
+
+---
+
+## ⚖️ Legal
+
+This is a **clean-room implementation** — no leaked source used. Architecture informed by analysis of the published npm package, legal under US DMCA §1201(f), EU Software Directive Art. 6, UK CDPA §50B.
+
+---
+
+## 📚 Related
+
+- [ruDevolution](https://github.com/ruvnet/rudevolution) — AI-Powered JavaScript Decompiler
+- [Decompiled Releases](https://github.com/ruvnet/rudevolution/releases) — Every Claude Code version
+- [v2 Architecture (ADR-001)](./docs/adr/ADR-001-v2-architecture.md)
+- [Path to 100% (ADR-002)](./docs/adr/ADR-002-path-to-100-percent.md)
+
+## Verified release automation
+
+![Installed CLI end to end verification](https://raw.githubusercontent.com/ruvnet/open-claude-code/main/assets/cli-e2e.svg)
+
+Runs daily at 03:00 UTC. Unchanged upstream versions are explicitly reported as no-op runs.
+
+Publication requires unit and regression tests, a dependency audit, validated source recovery, successful AI analysis, clean package installation tests, and a live provider Read tool roundtrip against a fresh random fixture. The exact tested tarball is published to npm, its SHA-512 integrity verified, and the registry version installed and exercised again.
+
+Only then does the upstream checkpoint advance. Failed gates stop publication and create an investigation issue. GitHub releases attach the package, source commit receipt and analysis. Nightly versions use the npm nightly tag. Stable releases require the manually selected latest channel.
+
+Required repository secrets: AI_API_KEY (OpenRouter) and NPM_TOKEN with publishing permission. GITHUB_TOKEN is supplied by GitHub Actions. ruOS bindings provision credentials without printing their values.
+
+```bash
+gh workflow run nightly.yml -f force_release=true -f channel=nightly
+npm install @ruvnet/open-claude-code@nightly
+```
+
+Structural changes produce review proposals, not implemented features. Concrete behavioral specifications and new tests are required before implementing them. Full upstream parity is not established.
+
+See [release integrity ADR](docs/adr/ADR-004-verified-npm-publication.md).
+
+
+## 📄 License
+
+MIT

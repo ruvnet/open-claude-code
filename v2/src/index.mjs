@@ -21,6 +21,7 @@
  * - Telemetry stub
  */
 
+import { readFileSync } from 'node:fs';
 import { createAgentLoop } from './core/agent-loop.mjs';
 import { createToolRegistry } from './tools/registry.mjs';
 import { createPermissionChecker } from './permissions/checker.mjs';
@@ -60,7 +61,7 @@ async function main() {
 
     // Handle --version
     if (args.showVersion) {
-        console.log('open-claude-code v2.0.0-alpha.1');
+        console.log('open-claude-code v' + JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
         process.exit(0);
     }
 
@@ -182,6 +183,7 @@ async function main() {
         const results = [];
 
         for await (const event of loop.run(args.prompt)) {
+            if (event.type === 'error') process.exitCode = 1;
             if (outputFormat === 'json') {
                 results.push(event);
             } else if (outputFormat === 'stream-json') {
