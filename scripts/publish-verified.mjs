@@ -24,7 +24,7 @@ if (!existing) {
   const result=spawnSync('npm',['publish',artifact,'--access','public','--tag',tag,'--ignore-scripts'],{stdio:'inherit',timeout:120000});
   if (result.status!==0) throw new Error('npm publication failed');
 }
-for(let n=0;n<10;n++){
+for(let n=0;n<60;n++){
   const d=await lookup();
   if(d){
     if(d.dist?.integrity!==integrity) throw new Error('Published integrity differs from tested artifact');
@@ -40,6 +40,6 @@ for(let n=0;n<10;n++){
     console.log(JSON.stringify({published:true,package:p.name,version:p.version,integrity,source:'npm registry'}));
     process.exit(0);
   }
-  await new Promise(r=>setTimeout(r,2000));
+  await new Promise(r=>setTimeout(r,5000));
 }
 throw new Error('Published artifact not visible; checkpoint must not advance');
