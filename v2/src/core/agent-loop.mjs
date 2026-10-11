@@ -18,9 +18,12 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
             throw new TypeError(key + ' must be an array of nonempty tool names');
         }
     }
+    if (settings.maxTurns != null && (!Number.isSafeInteger(settings.maxTurns) || settings.maxTurns < 1)) {
+        throw new TypeError('maxTurns must be a positive safe integer');
+    }
     const allowedNames = new Set(settings.allowedTools || []);
     const deniedNames = new Set(settings.disallowedTools || []);
-    const toolAllowed = name => !deniedNames.has(name) &&
+    const toolAllowed = name => tools.has?.(name) !== false && !deniedNames.has(name) &&
         (allowedNames.size === 0 || allowedNames.has(name));
     const availableTools = () => (tools.list?.() || []).filter(tool => toolAllowed(tool.name));
 
@@ -66,6 +69,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
     }
 
     async function* run(userMessage, options = {}) {
+        if (!options.continuation) state.modelCallCount = 0;
         const depth = (options._depth || 0);
 
         // Guard against runaway tool-call recursion
@@ -101,7 +105,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
         }
 
         // Check max turns
-        if (settings.maxTurns && state.turnCount > settings.maxTurns) {
+        if (settings.maxTurns && state.modelCallCount >= settings.maxTurns) {
             yield { type: 'error', message: `Max turns (${settings.maxTurns}) reached.` };
             yield { type: 'stop', reason: 'max_turns' };
             return;
@@ -113,6 +117,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
             state.messages = contextManager.compact(state.messages);
         }
 
+        state.modelCallCount++;
         yield { type: 'stream_request_start', turn: state.turnCount };
 
         // Detect provider and call API. Use state.model so an opt-in cascade
@@ -207,6 +212,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
                         toolResults.push({
                             type: 'tool_result',
                             tool_use_id: block.id,
+                            is_error: true,
                             content: `Blocked by hook: ${hookResult.message}`,
                         });
                         continue;
@@ -220,6 +226,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
                     toolResults.push({
                         type: 'tool_result',
                         tool_use_id: block.id,
+                        is_error: true,
                         content: 'Permission denied',
                     });
                     continue;
@@ -229,9 +236,15 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
                 yield { type: 'tool_progress', tool: block.name, status: 'running' };
 
                 let result;
+                let toolFailed = false;
                 try {
-                    result = await tools.call(block.name, block.input);
+                    result = await tools.call(block.name, block.input, {
+                        permissions, settings, hooks, model: activeModel,
+                        allowedToolNames: availableTools().map(tool => tool.name),
+                        delegationDepth: settings.delegationDepth || 0,
+                    });
                 } catch (err) {
+                    toolFailed = true;
                     result = `Tool error: ${err.message}`;
                 }
 
@@ -245,6 +258,7 @@ export function createAgentLoop({ model, tools, permissions, settings, hooks, ca
                 toolResults.push({
                     type: 'tool_result',
                     tool_use_id: block.id,
+                    ...(toolFailed ? { is_error: true } : {}),
                     content: typeof result === 'string' ? result : JSON.stringify(result),
                 });
             }

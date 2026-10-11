@@ -1,170 +1,159 @@
 /**
- * Hook Engine — pre/post tool use and stop hooks.
- *
- * Based on Claude Code's hooks system (6 event types):
- * - PreToolUse: can block tool execution
- * - PostToolUse: can modify results
- * - Stop: can prevent the agent from stopping
- * - Notification: inform external systems
- * - PrePrompt: modify user input
- * - PostResponse: modify assistant output
- *
- * Hooks are defined in settings.json under the "hooks" key.
+ * Hook Engine: command, HTTP and function hooks for pre/post tool use and stop.
+ * Legacy flat hooks retain millisecond timeouts and environment input.
+ * Claude-style typed hooks use second timeouts and JSON stdin/POST input.
+ * Prompt and agent evaluators are not supported.
  */
-
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'node:child_process';
 
 export class HookEngine {
-    /**
-     * @param {object} hooksConfig - hooks configuration from settings
-     */
-    constructor(hooksConfig = {}) {
-        this.hooks = hooksConfig;
-    }
+    constructor(hooksConfig = {}) { this.hooks = hooksConfig; }
 
-    /**
-     * Run pre-tool-use hooks. Returns { allow, message }.
-     * If any hook returns deny, the tool call is blocked.
-     *
-     * @param {string} toolName - name of the tool being called
-     * @param {object} input - tool input arguments
-     * @returns {Promise<{allow: boolean, message?: string}>}
-     */
     async runPreToolUse(toolName, input) {
-        const hooks = this._getHooks('PreToolUse');
-        for (const hook of hooks) {
-            // Check if hook applies to this tool
-            if (hook.toolName && hook.toolName !== toolName) continue;
-
-            const result = await this._executeHook(hook, {
-                event: 'PreToolUse',
-                toolName,
-                input,
-            });
-
-            if (result?.decision === 'deny' || result?.decision === 'block') {
-                return { allow: false, message: result.message || `Blocked by hook: ${hook.name || 'unnamed'}` };
+        for (const hook of this._getHooks('PreToolUse', toolName)) {
+            const result = await this._executeHook(hook, { event: 'PreToolUse', toolName, input });
+            const specific = result?.hookSpecificOutput;
+            if (result?.continue === false || ['deny', 'block'].includes(result?.decision)
+                || specific?.permissionDecision === 'deny') {
+                return { allow: false, message: result.stopReason || result.message || result.reason
+                    || specific?.permissionDecisionReason || `Blocked by hook: ${hook.name || 'unnamed'}` };
             }
         }
         return { allow: true };
     }
 
-    /**
-     * Run post-tool-use hooks. Can modify the result.
-     *
-     * @param {string} toolName - name of the tool that was called
-     * @param {*} result - tool execution result
-     * @returns {Promise<*>} possibly modified result
-     */
     async runPostToolUse(toolName, result) {
-        const hooks = this._getHooks('PostToolUse');
         let current = result;
-        for (const hook of hooks) {
-            if (hook.toolName && hook.toolName !== toolName) continue;
-
-            const hookResult = await this._executeHook(hook, {
-                event: 'PostToolUse',
-                toolName,
-                result: current,
-            });
-
-            if (hookResult?.modifiedResult !== undefined) {
-                current = hookResult.modifiedResult;
-            }
+        for (const hook of this._getHooks('PostToolUse', toolName)) {
+            const output = await this._executeHook(hook, { event: 'PostToolUse', toolName, result: current });
+            const specific = output?.hookSpecificOutput;
+            if (output?.modifiedResult !== undefined) current = output.modifiedResult;
+            if (toolName.startsWith('mcp__') && specific?.updatedMCPToolOutput !== undefined)
+                current = specific.updatedMCPToolOutput;
         }
         return current;
     }
 
-    /**
-     * Run stop hooks. Returns true if stop should proceed, false to continue.
-     *
-     * @returns {Promise<boolean>} whether to allow stopping
-     */
     async runStop() {
-        const hooks = this._getHooks('Stop');
-        for (const hook of hooks) {
+        for (const hook of this._getHooks('Stop')) {
             const result = await this._executeHook(hook, { event: 'Stop' });
-            if (result?.preventStop) {
-                return false; // do not stop
-            }
+            if (result?.preventStop || result?.decision === 'block') return false;
         }
-        return true; // allow stop
+        return true;
     }
 
-    /**
-     * Run notification hooks (fire-and-forget).
-     * @param {string} event - notification event name
-     * @param {object} data - event data
-     */
     async runNotification(event, data) {
-        const hooks = this._getHooks('Notification');
-        for (const hook of hooks) {
-            try {
-                await this._executeHook(hook, { event, ...data });
-            } catch {
-                // Notifications are best-effort
-            }
+        for (const hook of this._getHooks('Notification')) {
+            try { await this._executeHook(hook, { event, ...data }); } catch { /* best effort */ }
         }
     }
 
-    /**
-     * Get hooks for a given event type.
-     * @param {string} eventType
-     * @returns {Array}
-     */
-    _getHooks(eventType) {
-        if (!this.hooks || !this.hooks[eventType]) return [];
-        const hooks = this.hooks[eventType];
-        return Array.isArray(hooks) ? hooks : [hooks];
-    }
-
-    /**
-     * Execute a single hook. Supports command (shell) and function hooks.
-     *
-     * Note: hook.command is an operator-configured shell string (defined in
-     * settings.json by the user who controls this machine) — it is intentionally
-     * executed as a shell command.  The tool input/context is passed ONLY via
-     * environment variables (never interpolated into the command string) to
-     * prevent escalation from tool input into the hook command itself.
-     *
-     * @param {object} hook - hook definition
-     * @param {object} context - execution context
-     * @returns {Promise<object|null>}
-     */
-    async _executeHook(hook, context) {
-        try {
-            if (hook.command) {
-                // Ensure env values are strings (guards against prototype pollution
-                // or non-string values from context objects breaking child_process).
-                const env = {
-                    ...process.env,
-                    HOOK_EVENT: String(context.event || ''),
-                    HOOK_TOOL: String(context.toolName || ''),
-                    HOOK_INPUT: JSON.stringify(context.input || {}),
-                };
-                const output = execSync(hook.command, {
-                    encoding: 'utf-8',
-                    timeout: hook.timeout || 10000,
-                    env,
-                });
-                try {
-                    return JSON.parse(output.trim());
-                } catch {
-                    return { output: output.trim() };
+    _getHooks(eventType, toolName) {
+        const configured = this.hooks?.[eventType];
+        const entries = Array.isArray(configured) ? configured : configured ? [configured] : [];
+        return entries.flatMap(entry => {
+            if (entry.toolName && entry.toolName !== toolName) return [];
+            if (entry.matcher && toolName) {
+                try { if (!new RegExp(entry.matcher).test(toolName)) return []; }
+                catch {
+                    return (Array.isArray(entry.hooks) ? entry.hooks : [entry]).map(hook => ({
+                        onFailure: hook.onFailure, failOpen: hook.failOpen,
+                        handler: () => { throw new Error('Invalid hook matcher'); },
+                    }));
                 }
             }
+            return Array.isArray(entry.hooks) ? entry.hooks : [entry];
+        });
+    }
 
+    _timeout(hook) {
+        const value = hook.timeout === undefined ? 10000 : Number(hook.timeout) * (hook.type ? 1000 : 1);
+        if (!Number.isFinite(value) || value <= 0) throw new Error('Invalid hook timeout');
+        return Math.ceil(value);
+    }
+
+    _parseOutput(text, http = false) {
+        const trimmed = text.trim();
+        if (!trimmed) return null;
+        let output;
+        try { output = JSON.parse(trimmed); }
+        catch {
+            if (http || /^[\[{]/.test(trimmed)) throw new Error('Invalid hook JSON');
+            return { output: trimmed };
+        }
+        if (!output || typeof output !== 'object' || Array.isArray(output)) throw new Error('Invalid hook output object');
+        for (const key of ['continue', 'preventStop']) {
+            if (output[key] !== undefined && typeof output[key] !== 'boolean') throw new Error('Invalid hook decision');
+        }
+        if (output.decision !== undefined && !['allow', 'deny', 'block', 'approve'].includes(output.decision))
+            throw new Error('Invalid hook decision');
+        const specific = output.hookSpecificOutput;
+        if (specific !== undefined && (!specific || typeof specific !== 'object' || Array.isArray(specific)))
+            throw new Error('Invalid hook-specific output');
+        if (specific?.permissionDecision !== undefined && !['allow', 'deny', 'ask'].includes(specific.permissionDecision))
+            throw new Error('Invalid hook permission decision');
+        return output;
+    }
+
+    async _readHTTPResponse(response) {
+        if (!response.body) return '';
+        const reader = response.body.getReader();
+        const chunks = [];
+        let size = 0;
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                size += value.byteLength;
+                if (size > 1024 * 1024) {
+                    await reader.cancel('Hook response exceeds 1 MiB');
+                    throw new Error('Hook response exceeds 1 MiB');
+                }
+                chunks.push(value);
+            }
+            return Buffer.concat(chunks, size).toString('utf-8');
+        } finally {
+            reader.releaseLock();
+        }
+    }
+
+    async _executeHook(hook, context) {
+        try {
+            const timeout = this._timeout(hook);
+            const payload = { ...context, hook_event_name: context.event, tool_name: context.toolName,
+                tool_input: context.input, tool_response: context.result };
+            if (hook.type === 'http') {
+                const allowed = new Set(hook.allowedEnvVars || []);
+                const headers = Object.fromEntries(Object.entries(hook.headers || {}).map(([key, value]) =>
+                    [key, String(value).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
+                        (_, braced, plain) => allowed.has(braced || plain) ? process.env[braced || plain] || '' : '')]));
+                const response = await fetch(hook.url, { method: 'POST', redirect: 'error',
+                    headers: { ...headers, 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload), signal: AbortSignal.timeout(timeout) });
+                if (!response.ok) throw new Error(`HTTP hook status ${response.status}`);
+                return this._parseOutput(await this._readHTTPResponse(response), true);
+            }
+            if (hook.command) {
+                const options = { encoding: 'utf-8', timeout,
+                    input: JSON.stringify(payload), stdio: ['pipe', 'pipe', 'pipe'],
+                    env: { ...process.env, HOOK_EVENT: String(context.event || ''),
+                        HOOK_TOOL: String(context.toolName || ''), HOOK_INPUT: JSON.stringify(context.input || {}) } };
+                const output = Array.isArray(hook.args) ? execFileSync(hook.command, hook.args, options)
+                    : execSync(hook.command, options);
+                return this._parseOutput(output);
+            }
             if (typeof hook.handler === 'function') {
                 return await hook.handler(context);
             }
-
+            if (hook.type || hook.onFailure === 'block') throw new Error('Unsupported hook definition');
             return null;
         } catch (err) {
-            if (hook.failOpen !== false) {
-                // Default: fail open (allow)
-                return null;
-            }
-            return { decision: 'deny', message: `Hook error: ${err.message}` };
+            // Exit 2 is an explicit veto, regardless of the configured failure mode.
+            if (err.status === 2) return { decision: context.event === 'Stop' ? 'block' : 'deny', message: 'Hook blocked action (exit 2)' };
+            // Stop failure must not create an endless retry loop.
+            if (context.event !== 'Stop' && (hook.onFailure === 'block' || hook.failOpen === false))
+                return { decision: 'deny', message: 'Hook failed; action blocked by failure policy' };
+            return null;
         }
     }
 }

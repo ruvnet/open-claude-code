@@ -73,12 +73,12 @@ export function createToolRegistry() {
             }));
         },
 
-        async call(name, input) {
+        async call(name, input, context) {
             const tool = tools.get(name);
             if (!tool) throw new Error(`Unknown tool: ${name}`);
             const errors = tool.validateInput?.(input) || [];
             if (errors.length > 0) return `Validation error: ${errors.join(', ')}`;
-            return tool.call(input);
+            return tool.call(input, context);
         },
 
         register(tool) {

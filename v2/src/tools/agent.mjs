@@ -3,13 +3,12 @@
  *
  * Features:
  * - subagent_type parameter
- * - isolation: "worktree" option
+ * - worktree isolation is rejected until implemented
  * - run_in_background option
  * - model override
  */
 
 import { createAgentLoop } from '../core/agent-loop.mjs';
-import { createToolRegistry } from './registry.mjs';
 import { createPermissionChecker } from '../permissions/checker.mjs';
 
 export const AgentTool = {
@@ -25,7 +24,7 @@ export const AgentTool = {
             allowed_tools: {
                 type: 'array',
                 items: { type: 'string' },
-                description: 'List of tool names the subagent can use (default: all)',
+                description: 'Subset of parent tools the subagent can use (default: inherited tools)',
             },
             subagent_type: {
                 type: 'string',
@@ -34,7 +33,7 @@ export const AgentTool = {
             isolation: {
                 type: 'string',
                 enum: ['default', 'worktree'],
-                description: 'Isolation mode. "worktree" uses a git worktree.',
+                description: 'Isolation mode. Worktree requests are currently rejected.',
             },
             run_in_background: {
                 type: 'boolean',
@@ -50,7 +49,8 @@ export const AgentTool = {
 
     validateInput(input) {
         const errors = [];
-        if (!input.prompt) errors.push('prompt is required');
+        if (typeof input?.prompt !== 'string' || !input.prompt.trim()) errors.push('prompt is required');
+        if (input?.allowed_tools !== undefined && (!Array.isArray(input.allowed_tools) || !input.allowed_tools.every(n => typeof n === 'string'))) errors.push('allowed_tools must be an array of tool names');
         return errors;
     },
 
@@ -58,10 +58,15 @@ export const AgentTool = {
     _backgroundAgents: new Map(),
     _nextBgId: 0,
 
-    async call(input) {
-        const model = input.model || process.env.SUBAGENT_MODEL || 'claude-sonnet-4-6';
-        const tools = createToolRegistry();
-        const permissions = createPermissionChecker({ defaultMode: 'bypassPermissions' });
+    async call(input, context = {}) {
+        const errors = AgentTool.validateInput(input);
+        if (errors.length) throw new Error(errors.join(', '));
+        if (input.isolation && input.isolation !== 'default') throw new Error('Subagent worktree isolation is not implemented.');
+        const { createToolRegistry } = await import('./registry.mjs');
+        const policy = createSubagentPolicy(input, context, createToolRegistry());
+        const model = input.model || context.model || process.env.SUBAGENT_MODEL || 'claude-sonnet-4-6';
+        const { tools, permissions } = policy;
+        if (input.run_in_background && [...AgentTool._backgroundAgents.values()].filter(a => a.status === 'running').length >= 4) throw new Error('Background subagent concurrency limit reached.');
 
         // Build type-specific system prompt prefix
         let systemPrefix = '';
@@ -84,7 +89,8 @@ export const AgentTool = {
             model,
             tools,
             permissions,
-            settings: { stream: false },
+            settings: policy.settings,
+            hooks: policy.hooks,
         });
 
         if (input.run_in_background) {
@@ -115,6 +121,7 @@ async function runSubagent(loop, prompt) {
             if (event.type === 'assistant' && event.content) {
                 results.push(event.content);
             }
+            if (event.type === 'error') throw new Error(event.message || 'Subagent failed');
             if (event.type === 'result') {
                 results.push(`[tool:${event.tool}] ${String(event.result).slice(0, 500)}`);
             }
@@ -124,4 +131,62 @@ async function runSubagent(loop, prompt) {
     }
 
     return results.join('\n') || 'Subagent completed with no output.';
+}
+
+const SAFE_STANDALONE_TOOLS = ['Read', 'Glob', 'Grep', 'LS'];
+const MAX_CHILD_TURNS = 10;
+const MAX_DELEGATION_DEPTH = 3;
+
+/** Child capabilities are an intersection, never a fresh grant. */
+export function createSubagentPolicy(input, context = {}, registry) {
+    const errors = AgentTool.validateInput(input);
+    if (errors.length) throw new Error(errors.join(', '));
+    if (input.isolation && input.isolation !== 'default') {
+        throw new Error('Subagent worktree isolation is not implemented; refusing to run without isolation.');
+    }
+    const depth = context.delegationDepth ?? 0;
+    const maxDepth = Math.min(context.settings?.maxDelegationDepth ?? 2, MAX_DELEGATION_DEPTH);
+    if (!Number.isInteger(depth) || depth < 0 || !Number.isInteger(maxDepth) || depth >= maxDepth) {
+        throw new Error('Subagent delegation depth limit reached.');
+    }
+    const inheritedNames = context.allowedToolNames ?? SAFE_STANDALONE_TOOLS;
+    if (!Array.isArray(inheritedNames) || !inheritedNames.every(n => typeof n === 'string')) {
+        throw new Error('Invalid parent tool policy.');
+    }
+    const requested = new Set(input.allowed_tools ?? inheritedNames);
+    const allowed = new Set(inheritedNames.filter(name => requested.has(name) && registry.has(name)));
+    const parentPermissions = context.permissions ?? createPermissionChecker({ defaultMode: 'plan' });
+    if (typeof parentPermissions.check !== 'function') throw new Error('Invalid parent permission checker.');
+    const childContext = {
+        ...context,
+        allowedToolNames: [...allowed],
+        delegationDepth: depth + 1,
+        settings: {
+            ...context.settings,
+            stream: false,
+            allowedTools: [...allowed],
+            maxTurns: Math.min(context.settings?.maxTurns || MAX_CHILD_TURNS, MAX_CHILD_TURNS),
+            maxDelegationDepth: maxDepth,
+            delegationDepth: depth + 1,
+        },
+    };
+    const permissions = {
+        mode: parentPermissions.mode,
+        async check(name, toolInput) {
+            return allowed.has(name) && await parentPermissions.check(name, toolInput) === true;
+        },
+    };
+    childContext.permissions = permissions;
+    const tools = {
+        list: () => registry.list().filter(tool => allowed.has(tool.name)),
+        has: name => allowed.has(name),
+        get: name => allowed.has(name) ? registry.get(name) : undefined,
+        async call(name, toolInput) {
+            if (!await permissions.check(name, toolInput)) throw new Error('Subagent tool denied: ' + name);
+            // Explicit context propagation also works with older registry dispatchers.
+            if (name === 'Agent') return AgentTool.call(toolInput, childContext);
+            return registry.call(name, toolInput, childContext);
+        },
+    };
+    return { ...childContext, tools, permissions };
 }
