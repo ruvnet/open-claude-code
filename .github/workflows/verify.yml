@@ -1,0 +1,30 @@
+name: Package verification
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --prefix v2 --ignore-scripts
+      - run: node --test scripts/test/*.test.mjs
+      - run: npm test --prefix v2
+      - run: npm audit --prefix v2 --audit-level=high
+      - run: find v2/src -name '*.mjs' -print0 | xargs -0 -n1 node --check
+      - run: node v2/src/index.mjs optimize status
+      - name: Verify packed CLI
+        run: |
+          mkdir -p dist
+          cp README.md v2/README.md
+          npm pack ./v2 --pack-destination dist --json > /tmp/pack.json
+          TARBALL=$(node -p "JSON.parse(require('fs').readFileSync('/tmp/pack.json'))[0].filename")
+          node scripts/package-e2e.mjs "$PWD/dist/$TARBALL"

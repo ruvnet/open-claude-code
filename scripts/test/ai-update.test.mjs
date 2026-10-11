@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {discover} from '../ai-discovery.mjs';
+import {proposalsFromDiff} from '../auto-update-capabilities.mjs';
+const proof = version => ({version,packaging:'javascript',sourceSyntaxValid:true,sourceModules:1,processedSourceModules:1,sourceBytes:100,categoryCount:1,assetCount:0,graphModules:1,witness:{valid:true,chains:1,records:3,algorithm:'sha256'},tarballSha256:'a'.repeat(64),sourceManifestSha256:'b'.repeat(64),integrity:'sha512-YQ=='});
+const fixture = () => ({schemaVersion:1,status:'complete',package:'@anthropic-ai/claude-code',versions:{previous:'1.0.0',current:'1.0.1'},evidence:{previous:proof('1.0.0'),current:proof('1.0.1')},metrics:{previous:{source:{sizeBytes:100}},current:{source:{sizeBytes:100}}},summary:{prevModules:1,newModules:1,addedModuleCount:0,removedModuleCount:0,changedModuleCount:1},addedModules:[],removedModules:[],changedModules:[{name:'commands',sizeDelta:50,funcDelta:2}]});
+const env = {AI_API_KEY:'test-secret-value'};
+const ok = data => async () => ({ok:true,json:async()=>data});
+const complete = {choices:[{finish_reason:'stop',message:{content:'Only structural changes are measured.'}}]};
+test('structural changes cannot claim applied capabilities',()=>{const d=fixture();const before=JSON.stringify(d);const r=proposalsFromDiff(d);assert.equal(r.status,'proposals_only');assert.equal(r.applied,false);assert.deepEqual(r.updates,[]);assert.equal(r.implementationBlocked,true);assert.equal(JSON.stringify(d),before);});
+test('invalid source evidence fails before provider call',async()=>{let called=false;await assert.rejects(discover({},env,async()=>{called=true;}));assert.equal(called,false);assert.throws(()=>proposalsFromDiff({}));});
+test('compatible provider succeeds with safe request contract',async()=>{let options;const result=await discover(fixture(),env,async(url,o)=>{assert.equal(url,'https://openrouter.ai/api/v1/chat/completions');options=o;return {ok:true,json:async()=>complete};});assert.equal(options.redirect,'error');assert.equal(options.headers.authorization,'Bearer '+env.AI_API_KEY);assert.equal(result.model,'openai/gpt-4.1-mini');});
+test('HTTP rejection never exposes provider body',async()=>{await assert.rejects(discover(fixture(),env,async()=>({ok:false,status:401,json:()=>{throw Error('secret');}})),/^Error: AI HTTP 401$/);});
+test('missing key and insecure endpoint fail closed',async()=>{await assert.rejects(discover(fixture(),{},ok(complete)),/credential/);await assert.rejects(discover(fixture(),{...env,AI_BASE_URL:'http://example.com'},ok(complete)),/endpoint/);});
+test('malformed, empty, truncated, error and leaked responses fail',async()=>{for(const data of [{},{error:{message:'private'}},{choices:[{finish_reason:'length',message:{content:'partial'}}]},{choices:[{finish_reason:'stop',message:{content:env.AI_API_KEY}}]}])await assert.rejects(discover(fixture(),env,ok(data)));});
+test('Anthropic compatibility accepts only complete text',async()=>{const r=await discover(fixture(),{ANTHROPIC_API_KEY:'test-key'},ok({stop_reason:'end_turn',content:[{type:'text',text:'Measured structural report'}]}));assert.equal(r.text,'Measured structural report');});

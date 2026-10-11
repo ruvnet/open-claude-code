@@ -116,18 +116,23 @@ test('CLI failure exits nonzero and emits no success JSON', () => {
 });
 test('workflow always decompiles and gates consumers before release/version advancement', () => {
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/nightly.yml'), 'utf8');
-  const analyze = workflow.split('  analyze:\n')[1].split('  autoupdate:\n')[0];
-  assert(!analyze.split('    steps:')[0].includes('skip_ai_analysis'));
-  assert(!analyze.includes('Decompilation failed or returned empty'));
-  for (const name of ['autoupdate', 'release']) {
-    const job = workflow.split(`  ${name}:\n`)[1].split('    steps:')[0];
-    assert(job.includes("needs.analyze.result == 'success'")); assert(job.includes("needs.analyze.outputs.diff_available == 'true'"));
+  const order = ['node scripts/decompile-and-diff.mjs', 'node scripts/validate-decompile-diff.mjs',
+    'bash scripts/analyze-discoveries.sh', 'node scripts/auto-update-capabilities.mjs',
+    'node scripts/package-e2e.mjs', 'node scripts/publish-verified.mjs',
+    'Verify fresh installation from npm', 'gh release create', 'Advance upstream checkpoint'];
+  let previous = -1;
+  for (const gate of order) {
+    const position = workflow.indexOf(gate);
+    assert(position > previous, 'Missing or unordered release gate: ' + gate);
+    previous = position;
   }
-  assert(!workflow.includes('Run decompiler if diff missing'));
-  assert(workflow.indexOf('- name: Update last-known version') > workflow.indexOf('- name: Create GitHub release'));
-  assert(!workflow.includes('Could not push version update'));
-  assert(workflow.includes('Validate decompile evidence before release'));
-  assert(workflow.includes('needs: [detect, verify, analyze, autoupdate, release]'));
+  assert(!workflow.includes('continue-on-error'));
+  assert(!workflow.includes('skip_ai_analysis'));
+  assert(workflow.includes('--target "$GITHUB_SHA"'));
+  assert(workflow.includes('needs: release'));
+  assert(workflow.includes('if: failure()'));
+  assert(workflow.includes('last-decompiled-claude-version.txt'));
+
 });
 test('detection retries previously green but unvalidated releases and stops after validated publication', () => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'occ-detect-'));
@@ -176,5 +181,5 @@ test('validates current upstream using syntax on the required Node 24 runtime', 
   const diff = await runDiff('2.1.285', '2.1.284', { loadSources: async v => recovered(v, source) });
   validateDiff(diff, '2.1.285', '2.1.284');
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/nightly.yml'), 'utf8');
-  assert(workflow.includes("NODE_VERSION: '24'"));
+  assert(workflow.includes("node-version: '24'"));
 });
