@@ -1,0 +1,14 @@
+{
+  "name": "ruvnet-occ",
+  "owner": {
+    "name": "rUv"
+  },
+  "plugins": [
+    {
+      "name": "occ",
+      "source": "./",
+      "description": "Use, diagnose, and verify Open Claude Code."
+    }
+  ],
+  "description": "Shared Open Claude Code skills for use, diagnosis, and release verification."
+}

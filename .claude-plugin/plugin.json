@@ -1,0 +1,10 @@
+{
+  "name": "occ",
+  "version": "2.1.2",
+  "description": "Use, diagnose, and verify Open Claude Code with shared skills.",
+  "author": {
+    "name": "rUv"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/ruvnet/open-claude-code"
+}

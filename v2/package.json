@@ -1,6 +1,6 @@
 {
   "name": "@ruvnet/open-claude-code",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Open source agentic coding CLI with verified nightly upstream analysis",
   "type": "module",
   "bin": {
