@@ -7,6 +7,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { readStrictUtf8 } from './text-encoding.mjs';
 
 export const MultiEditTool = {
     name: 'MultiEdit',
@@ -57,7 +58,7 @@ export const MultiEditTool = {
 
             if (!fileContents.has(filePath)) {
                 try {
-                    fileContents.set(filePath, fs.readFileSync(filePath, 'utf-8'));
+                    fileContents.set(filePath, readStrictUtf8(filePath));
                 } catch (err) {
                     errors.push(`edit[${i}]: cannot read ${filePath}: ${err.message}`);
                     continue;

@@ -1,6 +1,6 @@
 {
   "name": "occ",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "Use, diagnose, and verify Open Claude Code with shared skills.",
   "author": {
     "name": "rUv"

@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -71,6 +71,27 @@ try {
     const help = await run(cli, ['--help']);
     success(help, '--help');
     assert.match(help.stdout, /--print/);
+
+
+    // Exercise the shipped upstream fixes, not workspace modules.
+    const { ReadTool } = await import(pathToFileURL(path.join(installedRoot, 'src/tools/read.mjs')));
+    const { EditTool } = await import(pathToFileURL(path.join(installedRoot, 'src/tools/edit.mjs')));
+    const { NotebookEditTool } = await import(pathToFileURL(path.join(installedRoot, 'src/tools/notebook-edit.mjs')));
+    const { HookEngine } = await import(pathToFileURL(path.join(installedRoot, 'src/hooks/engine.mjs')));
+    const large = path.join(temp, 'large.txt');
+    await writeFile(large, Array.from({length:2501},(_,i)=>'line '+(i+1)).join('\n'));
+    assert.ok(!(await ReadTool.call({file_path:large})).includes('2501\tline 2501'));
+    assert.ok((await ReadTool.call({file_path:large,allow_large:true})).includes('2501\tline 2501'));
+    const legacy = path.join(temp, 'legacy.txt'), bytes=Buffer.from([0x61,0xE9,0x62]);
+    await writeFile(legacy,bytes);await ReadTool.call({file_path:legacy});
+    assert.match(await EditTool.call({file_path:legacy,old_string:'a',new_string:'x'}),/not valid UTF-8/);
+    assert.deepEqual(await readFile(legacy),bytes);
+    const notebook=path.join(temp,'legacy.ipynb');
+    await writeFile(notebook,bytes);
+    assert.match(await NotebookEditTool.call({notebook_path:notebook,operation:'insert',cell_index:0,source:'x'}),/not valid UTF-8/);
+    assert.deepEqual(await readFile(notebook),bytes);
+    const strictHook=new HookEngine({PreToolUse:[{type:'command',command:process.execPath,args:['-e','process.exit(7)'],onFailure:'block'}]});
+    assert.equal((await strictHook.runPreToolUse('Write',{})).allow,false);
 
     const marker = `package-e2e-${randomUUID()}`;
     const fixture = path.join(temp, 'fixture.txt');
@@ -185,7 +206,7 @@ try {
     assert.match(openaiRejected.stdout + openaiRejected.stderr, /401|authentication_error/);
     console.log(JSON.stringify({ status: 'passed', package: installed.name, version: installed.version,
         checks: ['clean tarball installation', 'version', 'help', 'streaming Read tool roundtrip',
-            'provider failure exit', 'missing credential exit', 'OpenAI Read tool roundtrip', 'OpenAI failure exit'], provider: 'local mock; no live API called' }));
+            'provider failure exit', 'missing credential exit', 'OpenAI Read tool roundtrip', 'OpenAI failure exit', 'installed allow_large Read', 'invalid UTF-8 bytes preserved', 'installed hook failure blocks'], provider: 'local mock; no live API called' }));
 } finally {
     if (server) {
         server.closeAllConnections();

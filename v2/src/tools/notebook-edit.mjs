@@ -9,6 +9,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { readStrictUtf8 } from './text-encoding.mjs';
 
 export const NotebookEditTool = {
     name: 'NotebookEdit',
@@ -48,8 +49,9 @@ export const NotebookEditTool = {
         const filePath = path.resolve(input.notebook_path);
 
         try {
-            const raw = fs.readFileSync(filePath, 'utf-8');
-            const notebook = JSON.parse(raw);
+            const raw = readStrictUtf8(filePath);
+            const bom = raw.startsWith('\uFEFF') ? '\uFEFF' : '';
+            const notebook = JSON.parse(bom ? raw.slice(1) : raw);
 
             if (!notebook.cells || !Array.isArray(notebook.cells)) {
                 return 'Error: invalid notebook format (no cells array)';
@@ -87,7 +89,10 @@ export const NotebookEditTool = {
                 }
             }
 
-            fs.writeFileSync(filePath, JSON.stringify(notebook, null, 1));
+            const newline = raw.includes('\r\n') ? '\r\n' : '\n';
+            const trailing = raw.match(/(?:\r?\n)+$/)?.[0] || '';
+            const serialized = JSON.stringify(notebook, null, 1).replace(/\n/g, newline);
+            fs.writeFileSync(filePath, bom + serialized + trailing);
             return `Notebook updated: ${input.operation} at cell ${input.cell_index} (${notebook.cells.length} cells total)`;
         } catch (err) {
             return `Error: ${err.message}`;

@@ -14,6 +14,29 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 
 const DEFAULT_LIMIT = 2000;
+const MAX_TEXT_BYTES = 16 * 1024 * 1024;
+const MAX_TEXT_LINES = 100000;
+
+// Read a bounded snapshot even if the file grows after the initial stat.
+function readTextSnapshot(filePath) {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+        const size = fs.fstatSync(fd).size;
+        if (size > MAX_TEXT_BYTES) throw new Error('Text file exceeds the 16 MiB hard limit.');
+        const buffer = Buffer.alloc(size + 1);
+        let total = 0;
+        while (total < buffer.length) {
+            const count = fs.readSync(fd, buffer, total, buffer.length - total, total);
+            if (!count) break;
+            total += count;
+        }
+        if (total > size) throw new Error('File changed while reading; retry the read.');
+        if (isBinary(buffer.subarray(0, total))) throw new Error('File appears to be binary. Cannot display binary content.');
+        return buffer.toString('utf-8', 0, total);
+    } finally {
+        fs.closeSync(fd);
+    }
+}
 
 // Track which files have been read (used by Edit and Write tools)
 const readFiles = new Set();
@@ -44,16 +67,24 @@ export const ReadTool = {
             file_path: { type: 'string', description: 'Absolute path to the file' },
             offset: { type: 'number', description: 'Line number to start reading from (0-based)' },
             limit: { type: 'number', description: 'Number of lines to read (default 2000)' },
+            allow_large: { type: 'boolean', description: 'Read beyond the default 2000 lines; explicit offset/limit still apply. Text is capped at 16 MiB and 100000 lines.' },
             pages: { type: 'string', description: 'Page range for PDF files (e.g. "1-5")' },
         },
         required: ['file_path'],
     },
     validateInput(input) {
         const errors = [];
-        if (!input.file_path) errors.push('file_path is required');
+        if (!input || typeof input !== 'object' || Array.isArray(input)) return ['input must be an object'];
+        if (typeof input.file_path !== 'string' || !input.file_path.trim() || input.file_path.includes('\0')) errors.push('file_path must be a nonempty string without null bytes');
+        if (input.offset !== undefined && (!Number.isSafeInteger(input.offset) || input.offset < 0)) errors.push('offset must be a nonnegative safe integer');
+        if (input.limit !== undefined && (!Number.isSafeInteger(input.limit) || input.limit < 1)) errors.push('limit must be a positive safe integer');
+        if (input.allow_large !== undefined && typeof input.allow_large !== 'boolean') errors.push('allow_large must be a boolean');
+        if (input.pages !== undefined && typeof input.pages !== 'string') errors.push('pages must be a string');
         return errors;
     },
     async call(input) {
+        const errors = this.validateInput(input);
+        if (errors.length) return `Error: ${errors.join('; ')}`;
         const filePath = path.resolve(input.file_path);
 
         // Check existence
@@ -72,24 +103,14 @@ export const ReadTool = {
             return readPdf(filePath, input.pages);
         }
 
-        // Binary detection
-        try {
-            const fd = fs.openSync(filePath, 'r');
-            const buf = Buffer.alloc(8192);
-            const bytesRead = fs.readSync(fd, buf, 0, 8192, 0);
-            fs.closeSync(fd);
-            if (isBinary(buf.subarray(0, bytesRead))) {
-                return `Error: ${filePath} appears to be a binary file. Cannot display binary content.`;
-            }
-        } catch (e) {
-            return `Error: ${e.message}`;
-        }
+        if (!stat.isFile()) return 'Error: Read requires a regular file.';
 
         try {
-            const content = fs.readFileSync(filePath, 'utf-8');
+            const content = readTextSnapshot(filePath);
+            if (content.split('\n', MAX_TEXT_LINES + 1).length > MAX_TEXT_LINES) return 'Error: Text file exceeds the 100000 line hard limit.';
             const lines = content.split('\n');
-            const start = input.offset || 0;
-            const limit = input.limit || DEFAULT_LIMIT;
+            const start = input.offset ?? 0;
+            const limit = input.limit ?? (input.allow_large ? MAX_TEXT_LINES : DEFAULT_LIMIT);
             const end = Math.min(start + limit, lines.length);
 
             // Track as read

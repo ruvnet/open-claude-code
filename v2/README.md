@@ -91,6 +91,28 @@ node scripts/plugin-e2e.mjs ruvnet/open-claude-code
 
 The suite installs and removes real skills and plugins in disposable profiles, checks all three Claude skill expansions with a local model fixture, and verifies OCC discovery. Live provider behavior is tested separately by `scripts/live-package-e2e.mjs`. Tested installer: skills 1.7.2; Claude Code: 2.1.283.
 
+
+## Upstream behavior fixes in 2.1.3
+
+Implemented and tested against the public [Claude Code 2.1.295 and 2.1.296 changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md):
+
+| Behavior | OCC support |
+| --- | --- |
+| Hook failure policy | Command and HTTP hooks honor `onFailure: "block"`; exit 2 vetoes execution |
+| PreToolUse veto | `continue: false` and structured deny block the call and return an error result to the next model turn |
+| PostToolUse MCP output | `updatedMCPToolOutput` replaces results for MCP tool names |
+| Large text reads | `Read.allow_large: true` bypasses the implicit 2,000 line limit; explicit offset/limit remain active |
+| Encoding safety | Edit, MultiEdit and NotebookEdit reject invalid UTF8 before any write |
+| Delegation safety | Child tools intersect parent tools and inherit permission checks and hooks |
+| Model call budget | `--max-turns` limits model requests, including tool continuations |
+
+Large text reads have hard ceilings of 16 MiB and 100,000 lines. HTTP hook responses have a 1 MiB limit. Typed hook timeouts use seconds; legacy flat hook timeouts retain milliseconds. Plain command stdout remains supported.
+
+Subagents default to at most 10 model calls, delegation depth 2 (hard maximum 3), and at most 4 running background agents. An explicit empty child tool list grants no tools. Worktree isolation requests are rejected until isolation is implemented.
+
+Prompt and agent hook evaluators, asynchronous hooks, complete session/checkpoint lifecycle wiring, and full provider parity remain outside this release. See [ADR-006](docs/adr/ADR-006-upstream-behavioral-contracts.md). The [lifecycle issue](https://github.com/ruvnet/open-claude-code/issues/17) remains open for those gaps.
+
+
 ## 🧠 What Is This?
 
 **Open Claude Code** is a ground-up open source rebuild of Anthropic's [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), informed by [ruDevolution's](https://github.com/ruvnet/rudevolution) AI-powered decompilation of the published npm package.

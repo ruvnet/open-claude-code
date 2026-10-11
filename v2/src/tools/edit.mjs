@@ -9,6 +9,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { readStrictUtf8 } from './text-encoding.mjs';
 import { hasBeenRead, markRead } from './read.mjs';
 
 export const EditTool = {
@@ -46,7 +47,7 @@ export const EditTool = {
 
         let content;
         try {
-            content = fs.readFileSync(filePath, 'utf-8');
+            content = readStrictUtf8(filePath);
         } catch (e) {
             return `Error: ${e.message}`;
         }
