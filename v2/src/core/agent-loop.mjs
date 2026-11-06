@@ -5,7 +5,7 @@
 import { streamResponse, accumulateStream } from './streaming.mjs';
 import { ContextManager } from './context-manager.mjs';
 import { buildSystemPrompt } from './system-prompt.mjs';
-import { readApiKey } from './providers.mjs';
+import { readApiKey, resolveAnthropicBaseUrl } from './providers.mjs';
 
 /** Maximum number of consecutive tool-use continuation turns before aborting. */
 const MAX_TOOL_RECURSION_DEPTH = 50;
@@ -330,7 +330,7 @@ async function callAnthropic(model, state, toolDefs, settings, stream) {
         body.thinking = { type: 'enabled', budget_tokens: settings.thinkingBudget || 10000 };
     }
 
-    const res = await fetch((process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '') + '/v1/messages', {
+    const res = await fetch(resolveAnthropicBaseUrl() + '/v1/messages', {
         redirect: 'error',
         method: 'POST',
         headers: {

@@ -1906,6 +1906,26 @@ section('MetaHarness: router cost-cascade');
     assertType(built.nativeAvailable, 'boolean', 'nativeAvailable is a boolean');
 }
 
+section('MetaHarness: optional @metaharness/router (real import)');
+{
+    // Optional dependency: exercise the real package when it is installed,
+    // and report a skip (not a failure) when an install omitted it.
+    let native = null;
+    try {
+        native = await import('@metaharness/router');
+    } catch (e) {
+        console.log(`  SKIP: @metaharness/router not installed (${e.code || e.message})`);
+    }
+    if (native) {
+        assertType(native.Router, 'function', '@metaharness/router exports Router');
+        assertType(native.resolveRouterBackend, 'function', '@metaharness/router exports resolveRouterBackend');
+        const { createRouter } = await import('../src/optimize/router.mjs');
+        const probed = await createRouter();
+        assertEqual(probed.nativeAvailable, true, 'createRouter detects the installed native router');
+        assertEqual(probed.backend, 'local', 'Local router stays the default even when native is available');
+    }
+}
+
 section('MetaHarness: outcome store');
 {
     const { OutcomeStore, estimateCostUsd } = await import('../src/optimize/store.mjs');
@@ -2165,6 +2185,55 @@ section('API key configuration');
             if (v === undefined) delete process.env[k];
             else process.env[k] = v;
         }
+    }
+}
+
+section('Anthropic base URL validation');
+{
+    const { resolveAnthropicBaseUrl } = await import('../src/core/providers.mjs');
+    assertEqual(resolveAnthropicBaseUrl(undefined), 'https://api.anthropic.com', 'Unset base URL uses the default');
+    assertEqual(resolveAnthropicBaseUrl('  '), 'https://api.anthropic.com', 'Blank base URL uses the default');
+    assertEqual(resolveAnthropicBaseUrl('https://proxy.example.com/anthropic/'), 'https://proxy.example.com/anthropic', 'Trailing slash is stripped, path kept');
+    assertEqual(resolveAnthropicBaseUrl('http://127.0.0.1:8080'), 'http://127.0.0.1:8080', 'Loopback http is allowed');
+    assertEqual(resolveAnthropicBaseUrl('http://localhost:4000/'), 'http://localhost:4000', 'localhost http is allowed');
+    const rejects = (value, label) => {
+        let err = null;
+        try { resolveAnthropicBaseUrl(value); } catch (e) { err = e; }
+        assert(err !== null, `${label} is rejected`);
+        assert(err && !err.message.includes(value), `${label} error does not echo the value`);
+    };
+    rejects('not a url', 'Unparseable URL');
+    rejects('http://proxy.example.com', 'Plain http to a remote host');
+    rejects('ftp://proxy.example.com', 'Non-http scheme');
+    rejects('https://user:s3cr3t@proxy.example.com', 'Embedded credentials');
+    rejects('https://proxy.example.com/?key=s3cr3t', 'Query string');
+    rejects('https://proxy.example.com/#frag', 'Fragment');
+
+    // End to end: an invalid base URL fails before any request and the error
+    // carries neither the URL nor the API key.
+    const saved = { key: process.env.ANTHROPIC_API_KEY, base: process.env.ANTHROPIC_BASE_URL };
+    try {
+        process.env.ANTHROPIC_API_KEY = 'sk-ant-test-not-a-real-key';
+        process.env.ANTHROPIC_BASE_URL = 'http://leak.example.com/?token=s3cr3t';
+        const loop = createAgentLoop({
+            model: 'claude-sonnet-4-6',
+            tools: createToolRegistry(),
+            permissions: createPermissionChecker({ defaultMode: 'bypassPermissions' }),
+            settings: {},
+            hooks: null,
+        });
+        let errorEvent = null;
+        for await (const event of loop.run('hello')) {
+            if (event.type === 'error') { errorEvent = event; break; }
+        }
+        assert(errorEvent !== null, 'Invalid ANTHROPIC_BASE_URL yields an error event');
+        const text = JSON.stringify(errorEvent);
+        assertIncludes(text, 'ANTHROPIC_BASE_URL', 'Error names the env var');
+        assert(!text.includes('sk-ant-test-not-a-real-key'), 'Error does not contain the API key');
+        assert(!text.includes('leak.example.com') && !text.includes('s3cr3t'), 'Error does not contain the base URL');
+    } finally {
+        if (saved.key === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = saved.key;
+        if (saved.base === undefined) delete process.env.ANTHROPIC_BASE_URL; else process.env.ANTHROPIC_BASE_URL = saved.base;
     }
 }
 

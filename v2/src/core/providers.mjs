@@ -214,6 +214,34 @@ export function listProviders() {
  * @param {...string} envKeys - env var names to try, most preferred first
  * @returns {string} the trimmed key, or '' if none is configured
  */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/**
+ * Resolve and validate the Anthropic API base URL from ANTHROPIC_BASE_URL.
+ * Requires https (plain http only for loopback proxies), and rejects embedded
+ * credentials, query strings and fragments. The error never echoes the value,
+ * so a mistyped URL carrying a secret is not written to logs.
+ * @param {string} [raw] defaults to process.env.ANTHROPIC_BASE_URL
+ * @returns {string} base URL without a trailing slash
+ */
+export function resolveAnthropicBaseUrl(raw = process.env.ANTHROPIC_BASE_URL) {
+    const value = (raw || '').trim();
+    if (!value) return 'https://api.anthropic.com';
+    let url;
+    try {
+        url = new URL(value);
+    } catch {
+        throw new Error('ANTHROPIC_BASE_URL is not a valid URL');
+    }
+    const loopback = LOOPBACK_HOSTS.has(url.hostname);
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+        throw new Error('ANTHROPIC_BASE_URL must use https (http is allowed only for localhost)');
+    }
+    if (url.username || url.password) throw new Error('ANTHROPIC_BASE_URL must not contain credentials');
+    if (url.search || url.hash) throw new Error('ANTHROPIC_BASE_URL must not contain a query or fragment');
+    return url.href.replace(/\/+$/, '');
+}
+
 export function readApiKey(...envKeys) {
     for (const envKey of envKeys) {
         const value = (process.env[envKey] || '').trim();
